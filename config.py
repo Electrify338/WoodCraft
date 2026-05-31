@@ -15,7 +15,20 @@ DEBUG = True
 # that need a unique name. It's also recommended to use a company name as 
 # part of the ID to better ensure the ID is unique.
 ADDIN_NAME = os.path.basename(os.path.dirname(__file__))
-COMPANY_NAME = 'ACME'
+COMPANY_NAME = 'WoodCraft'
 
-# Palettes
-sample_palette_id = f'{COMPANY_NAME}_{ADDIN_NAME}_palette_id'
+# ---------------------------------------------------------------------------
+# UI layout
+# ---------------------------------------------------------------------------
+# All WoodCraft commands live in a dedicated tab inside the Design workspace.
+# The tab is created on demand by the first command that starts (see
+# commands/ui_helpers.py) and removed when the last command stops.
+DESIGN_WORKSPACE_ID = 'FusionSolidEnvironment'
+
+TAB_ID = f'{COMPANY_NAME}_tab'
+TAB_NAME = 'WoodCraft'
+
+# Toolbar panels (groups of related commands inside the tab). The id is kept
+# stable for backwards compatibility; only the display name changes.
+DRESSUP_PANEL_ID = f'{COMPANY_NAME}_dressup_panel'
+DRESSUP_PANEL_NAME = 'Cabinet Builder'
