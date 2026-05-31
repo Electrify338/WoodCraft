@@ -20,3 +20,6 @@ desktop.ini
 .idea/
 *.swp
 *.swo
+
+# MD files
+JoinerCAD_Addon_Analysis.md
