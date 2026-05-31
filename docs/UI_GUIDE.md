@@ -17,8 +17,9 @@ built at runtime from Python; there is no static UI definition file.
 Design workspace (FusionSolidEnvironment)
 └── Tab:  "WoodCraft"             id = WoodCraft_tab
     └── Panel: "Cabinet Builder"  id = WoodCraft_dressup_panel
-        ├── Carcass Maker (button) id = WoodCraft_dressUp
-        └── Trim          (button) id = WoodCraft_trim
+        ├── Carcass Maker  (button) id = WoodCraft_dressUp
+        ├── Trim           (button) id = WoodCraft_trim
+        └── Edit Thickness (button) id = WoodCraft_editThickness
 ```
 
 All of these IDs are defined in [`config.py`](../config.py). The tab and panel
@@ -56,10 +57,11 @@ real WoodCraft artwork using the **same filenames** — no code change is needed
 
 Icon folders to populate:
 
-| Command       | Folder                                           |
-|---------------|--------------------------------------------------|
-| Carcass Maker | `commands/dressUp/resources/`                    |
-| Trim          | `commands/trim/resources/`                       |
+| Command        | Folder                                          |
+|----------------|-------------------------------------------------|
+| Carcass Maker  | `commands/dressUp/resources/`                   |
+| Trim           | `commands/trim/resources/`                      |
+| Edit Thickness | `commands/editThickness/resources/`             |
 
 There is also a top-level [`AddInIcon.svg`](../AddInIcon.svg) (referenced by
 `WoodCraft.manifest`) used as the add-in's icon in Fusion's Scripts & Add-Ins
@@ -124,3 +126,4 @@ reference pattern if you need it; they can be restored from the template repo.
 | `DRESSUP_PANEL_NAME`       | `Cabinet Builder`          |
 | Carcass Maker `CMD_ID`     | `WoodCraft_dressUp`        |
 | Trim `CMD_ID`              | `WoodCraft_trim`           |
+| Edit Thickness `CMD_ID`    | `WoodCraft_editThickness`  |

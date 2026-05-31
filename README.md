@@ -33,6 +33,12 @@ outer shell of a cabinet) into individual panel components.
 
 Panels are intentionally left overlapping at the corners — that's what Trim is for.
 
+### Edit Thickness
+Changes the thickness of existing panels. Select one or more panels and enter a
+new thickness — it edits each panel's extrude feature **in place** (scaling its
+extent so the direction and offset are preserved), rather than adding new
+geometry. The field prefills with the selected panel's current thickness.
+
 ### Trim
 Cuts panels so they fit against each other, using Fusion's Combine (cut).
 

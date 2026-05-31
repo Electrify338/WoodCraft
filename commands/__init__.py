@@ -4,11 +4,13 @@
 # entry module here, and appending it to the `commands` list.
 from .dressUp import entry as dressUp
 from .trim import entry as trim
+from .editThickness import entry as editThickness
 
 # Fusion automatically calls start() and stop() on each of these.
 commands = [
     dressUp,
     trim,
+    editThickness,
 ]
 
 
