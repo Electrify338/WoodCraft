@@ -1,30 +1,25 @@
 # Here you define the commands that will be added to your add-in.
+# Each command lives in its own sub-folder with an `entry` module exposing
+# start() and stop(). Add a new command by creating a folder, importing its
+# entry module here, and appending it to the `commands` list.
+from .dressUp import entry as dressUp
+from .trim import entry as trim
 
-# TODO Import the modules corresponding to the commands you created.
-# If you want to add an additional command, duplicate one of the existing directories and import it here.
-# You need to use aliases (import "entry" as "my_module") assuming you have the default module named "entry".
-from .commandDialog import entry as commandDialog
-from .paletteShow import entry as paletteShow
-from .paletteSend import entry as paletteSend
-
-# TODO add your imported modules to this list.
-# Fusion will automatically call the start() and stop() functions.
+# Fusion automatically calls start() and stop() on each of these.
 commands = [
-    commandDialog,
-    paletteShow,
-    paletteSend
+    dressUp,
+    trim,
 ]
 
 
-# Assumes you defined a "start" function in each of your modules.
-# The start function will be run when the add-in is started.
+# Run the start function in each command. Errors are caught and logged so one
+# failing command doesn't prevent the others from loading.
 def start():
     for command in commands:
         command.start()
 
 
-# Assumes you defined a "stop" function in each of your modules.
-# The stop function will be run when the add-in is stopped.
+# Run the stop function in each command. Errors are caught and logged.
 def stop():
     for command in commands:
         command.stop()
