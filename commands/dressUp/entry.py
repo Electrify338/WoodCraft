@@ -418,7 +418,7 @@ def _update_graphics():
             body = p['face'].body
             try:
                 if body.opacity > 0.9:
-                    body.opacity = 0.4
+                    body.opacity = 0.3
                     _dimmed_bodies.append(body)
             except Exception:
                 pass
@@ -490,12 +490,24 @@ def command_execute(args: adsk.core.CommandEventArgs):
     _snapshot_cells(inputs)
 
     created = 0
+    skeleton_bodies = []
     for p in _panels:
+        body = p['face'].body
+        if all(b is not body for b in skeleton_bodies):
+            skeleton_bodies.append(body)
         try:
             _build_panel(p)
             created += 1
         except Exception:
             futil.handle_error(f'Dress Up: failed to create "{p.get("name", "?")}"')
+
+    # Hide the skeleton bodies now that the panels exist — the carcass is the
+    # set of panel components, the skeleton was just the input shape.
+    for body in skeleton_bodies:
+        try:
+            body.isLightBulbOn = False
+        except Exception:
+            pass
 
     if created < len(_panels):
         ui.messageBox(
