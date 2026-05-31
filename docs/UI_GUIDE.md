@@ -19,7 +19,8 @@ Design workspace (FusionSolidEnvironment)
     └── Panel: "Cabinet Builder"  id = WoodCraft_dressup_panel
         ├── Carcass Maker  (button) id = WoodCraft_dressUp
         ├── Trim           (button) id = WoodCraft_trim
-        └── Edit Thickness (button) id = WoodCraft_editThickness
+        ├── Edit Thickness (button) id = WoodCraft_editThickness
+        └── Shelf Creator  (button) id = WoodCraft_shelf
 ```
 
 All of these IDs are defined in [`config.py`](../config.py). The tab and panel
@@ -49,41 +50,55 @@ Optional but recommended (Fusion will use them if present):
 | `96x96.png` | Extra high-DPI                            |
 | `disabled-16x16.png` / `disabled-32x32.png` / `disabled-64x64.png` | Greyed-out state when the command is unavailable |
 
-### Current state — PLACEHOLDERS
+### Current state — custom artwork
 
-The PNGs currently in each `resources/` folder are **copies of the Fusion
-sample-add-in icons**. They are placeholders only. Replace them in place with
-real WoodCraft artwork using the **same filenames** — no code change is needed.
+Each command's `resources/` folder holds **custom WoodCraft icons** (16/32/64).
+To restyle a command, replace the PNGs in place using the **same filenames** —
+no code change is needed.
 
-Icon folders to populate:
+Icon folders:
 
 | Command        | Folder                                          |
 |----------------|-------------------------------------------------|
 | Carcass Maker  | `commands/dressUp/resources/`                   |
 | Trim           | `commands/trim/resources/`                      |
 | Edit Thickness | `commands/editThickness/resources/`             |
+| Shelf Creator  | `commands/shelf/resources/`                     |
+
+> Note: the **folder names differ from the display names** (Carcass Maker lives
+> in `dressUp/`, Shelf Creator in `shelf/`, Edit Thickness in `editThickness/`).
+> The folder name is internal; the display name comes from `CMD_NAME` in each
+> `entry.py`. If you find stray icon-only folders like `panelThickness/` or
+> `shelfCreator/`, they are leftovers and not used by any command.
 
 There is also a top-level [`AddInIcon.svg`](../AddInIcon.svg) (referenced by
 `WoodCraft.manifest`) used as the add-in's icon in Fusion's Scripts & Add-Ins
-dialog. That can be restyled too.
+dialog.
 
 ### Icon design notes
 - PNG, transparent background, square.
 - Keep the glyph readable at 16×16 — simple silhouettes, not fine detail.
 - Match Fusion's monochrome/line-art toolbar style so buttons feel native.
-- Suggested motifs: **Carcass Maker** = a box turning into separated panels;
-  **Trim** = a panel with a notch/cut where another panel meets it.
+- Motif ideas: **Carcass Maker** = a box turning into separated panels;
+  **Trim** = a panel with a notch where another panel meets it;
+  **Edit Thickness** = a panel with a thickness arrow;
+  **Shelf Creator** = a shelf spanning between two sides.
 
-### Icons the dialogs still need (button inputs)
-The Carcass Maker dialog has three action "buttons" — **Collect all flat faces**,
-**Reset rows to defaults**, and **Delete selected row** — implemented as
-checkbox-style `BoolValueInput`s that reset themselves after firing (checkbox
-style is used because a non-checkbox/button-style `BoolValueInput` with an empty
-resource folder throws). To make them render as real icon buttons, give each a
-resource folder of 16/32/64 PNGs and switch the 3rd arg of `addBoolValueInput`
-to `False`. Suggested glyphs: Collect = grid of faces, Defaults = reset/refresh
-arrow, Delete = trash can or minus. See `commands/dressUp/entry.py`
-(`COLLECT_BTN_ID`, `DEFAULTS_BTN_ID`, `DELETE_BTN_ID`).
+### Dialog action-button icons
+The Carcass Maker dialog has three in-dialog action buttons — **Collect all flat
+faces**, **Reset rows to defaults**, and **Delete selected row** — created as
+icon `BoolValueInput`s (non-checkbox) that reset themselves after firing. Each
+points at its own icon sub-folder under the command's `resources/`:
+
+| Button         | Icon sub-folder                          | id (in `entry.py`) |
+|----------------|------------------------------------------|--------------------|
+| Collect faces  | `commands/dressUp/resources/collect/`    | `COLLECT_BTN_ID`   |
+| Reset defaults | `commands/dressUp/resources/defaults/`   | `DEFAULTS_BTN_ID`  |
+| Delete row     | `commands/dressUp/resources/delete/`     | `DELETE_BTN_ID`    |
+
+Each sub-folder holds its own 16/32/64 PNGs. (A non-checkbox `BoolValueInput`
+*must* have a valid icon folder — an empty one throws and silently aborts the
+dialog setup, so always keep these populated.)
 
 ---
 
@@ -127,3 +142,4 @@ reference pattern if you need it; they can be restored from the template repo.
 | Carcass Maker `CMD_ID`     | `WoodCraft_dressUp`        |
 | Trim `CMD_ID`              | `WoodCraft_trim`           |
 | Edit Thickness `CMD_ID`    | `WoodCraft_editThickness`  |
+| Shelf Creator `CMD_ID`     | `WoodCraft_shelf`          |

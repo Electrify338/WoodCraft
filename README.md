@@ -4,8 +4,8 @@ A lightweight Autodesk Fusion add-in for cabinetmaking — a lean, open alternat
 to tools like JoinerCAD, focused on turning a simple "skeleton" body into a set of
 parametric panel components and joining them, without the bloat or subscription.
 
-> **Status:** early development. Two features are working (Carcass Maker and Trim);
-> more are planned. Toolbar icons are placeholders.
+> **Status:** early development. Four commands are working — Carcass Maker, Trim,
+> Edit Thickness and Shelf Creator — with more planned.
 
 ---
 
@@ -47,8 +47,22 @@ Cuts panels so they fit against each other, using Fusion's Combine (cut).
   e.g. a reveal around a door or clearance so a bottom panel doesn't bind between
   two sides.
 
+### Shelf Creator
+Builds a parametric shelf panel on a chosen plane, bounded by four faces.
+
+- Pick the **shelf plane** (a face or construction plane), then **four bounding
+  faces** (the surrounding walls) each with its own **offset**, plus a
+  **thickness**.
+- Each shelf edge is the intersection of a wall with the shelf plane, kept
+  associative with collinear constraints, so the shelf tracks the walls when
+  their parameters change.
+- The four edges are closed into a rectangle from their corner intersections, so
+  any offset works — positive (inset), negative (overhang) or uneven per side.
+- The four bounding faces are numbered **1–4** in the viewport to match the
+  offset fields.
+
 ### Planned
-Miter, shelves & dividers, materials, BOM, and CAM helpers (see
+Miter, distributed shelves & dividers, materials, BOM, and CAM helpers (see
 `JoinerCAD_Addon_Analysis.md` for the broader reference set this is modelled on).
 
 ---
@@ -84,6 +98,15 @@ APIs (current releases). Windows is the declared supported OS in the manifest.
 2. Select the panels to trim, then the panels to trim them with, set a gap if you
    want clearance, and click **OK**.
 
+**Add a shelf**
+1. Run **Cabinet Builder → Shelf Creator**.
+2. Pick the shelf plane, then the four surrounding faces (watch the 1–4 labels),
+   set each offset and the thickness, and click **OK**.
+
+**Change a panel's thickness**
+1. Run **Cabinet Builder → Edit Thickness**, pick the panel(s) — the field shows
+   the current thickness — type the new value and click **OK**.
+
 ---
 
 ## Project layout
@@ -97,7 +120,9 @@ WoodCraft/
 │   ├── __init__.py           # registers the commands
 │   ├── ui_helpers.py         # shared tab/panel creation + teardown
 │   ├── dressUp/              # Carcass Maker command
-│   └── trim/                 # Trim command
+│   ├── trim/                 # Trim command
+│   ├── editThickness/        # Edit Thickness command
+│   └── shelf/                # Shelf Creator command
 ├── lib/fusionAddInUtils/     # Autodesk add-in template helpers (logging, events)
 ├── docs/UI_GUIDE.md          # icon/UI guide for design work
 └── JoinerCAD_Addon_Analysis.md   # reference analysis of the tool this mimics
@@ -112,9 +137,11 @@ conventions and the IDs that must stay stable.
 
 ## Notes & known limitations
 
-- **Icons are placeholders** (copied from the Fusion sample add-in). The
-  Defaults/Delete/Collect actions render as checkbox-style buttons until real icon
-  resources are added — see `docs/UI_GUIDE.md`.
+- Command and action-button **icons are custom artwork** under each command's
+  `resources/` folder (see `docs/UI_GUIDE.md` for the layout).
 - The Trim **gap** is positive (clearance) only; a negative-offset "groove" mode
   was explored and removed because Fusion lacks a clean uniform solid-offset API.
+  (Shelf Creator offsets, by contrast, do support negatives.)
+- Shelf Creator assumes the four bounding faces form two parallel pairs (the
+  normal cabinet case: two sides + back + front).
 - Author: Abdelrahman Youssry.
