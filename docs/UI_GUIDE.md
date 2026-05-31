@@ -15,10 +15,10 @@ built at runtime from Python; there is no static UI definition file.
 
 ```
 Design workspace (FusionSolidEnvironment)
-└── Tab:  "WoodCraft"            id = WoodCraft_tab
-    └── Panel: "Dress Up"        id = WoodCraft_dressup_panel
-        ├── Dress Up  (button)   id = WoodCraft_dressUp
-        └── Trim      (button)   id = WoodCraft_trim
+└── Tab:  "WoodCraft"             id = WoodCraft_tab
+    └── Panel: "Cabinet Builder"  id = WoodCraft_dressup_panel
+        ├── Carcass Maker (button) id = WoodCraft_dressUp
+        └── Trim          (button) id = WoodCraft_trim
 ```
 
 All of these IDs are defined in [`config.py`](../config.py). The tab and panel
@@ -56,10 +56,10 @@ real WoodCraft artwork using the **same filenames** — no code change is needed
 
 Icon folders to populate:
 
-| Command  | Folder                                                |
-|----------|-------------------------------------------------------|
-| Dress Up | `commands/dressUp/resources/`                         |
-| Trim     | `commands/trim/resources/`                            |
+| Command       | Folder                                           |
+|---------------|--------------------------------------------------|
+| Carcass Maker | `commands/dressUp/resources/`                    |
+| Trim          | `commands/trim/resources/`                       |
 
 There is also a top-level [`AddInIcon.svg`](../AddInIcon.svg) (referenced by
 `WoodCraft.manifest`) used as the add-in's icon in Fusion's Scripts & Add-Ins
@@ -69,16 +69,19 @@ dialog. That can be restyled too.
 - PNG, transparent background, square.
 - Keep the glyph readable at 16×16 — simple silhouettes, not fine detail.
 - Match Fusion's monochrome/line-art toolbar style so buttons feel native.
-- Suggested motifs: **Dress Up** = a box turning into separated panels;
+- Suggested motifs: **Carcass Maker** = a box turning into separated panels;
   **Trim** = a panel with a notch/cut where another panel meets it.
 
 ### Icons the dialogs still need (button inputs)
-The Dress Up dialog has a per-panel table with two action buttons, **Defaults**
-and **Delete**, created as non-checkbox `BoolValueInput`s with an empty resource
-folder (text-only for now). If you want them to render with proper icons, give
-each a small resource folder and pass it as the 4th arg of `addBoolValueInput`.
-Suggested 16/32/64 glyphs: Defaults = a reset/refresh arrow, Delete = a trash
-can or minus. See `commands/dressUp/entry.py` (`DEFAULTS_BTN_ID`, `DELETE_BTN_ID`).
+The Carcass Maker dialog has three action "buttons" — **Collect all flat faces**,
+**Reset rows to defaults**, and **Delete selected row** — implemented as
+checkbox-style `BoolValueInput`s that reset themselves after firing (checkbox
+style is used because a non-checkbox/button-style `BoolValueInput` with an empty
+resource folder throws). To make them render as real icon buttons, give each a
+resource folder of 16/32/64 PNGs and switch the 3rd arg of `addBoolValueInput`
+to `False`. Suggested glyphs: Collect = grid of faces, Defaults = reset/refresh
+arrow, Delete = trash can or minus. See `commands/dressUp/entry.py`
+(`COLLECT_BTN_ID`, `DEFAULTS_BTN_ID`, `DELETE_BTN_ID`).
 
 ---
 
@@ -118,6 +121,6 @@ reference pattern if you need it; they can be restored from the template repo.
 | `DESIGN_WORKSPACE_ID`      | `FusionSolidEnvironment`   |
 | `TAB_ID` / `TAB_NAME`      | `WoodCraft_tab` / WoodCraft |
 | `DRESSUP_PANEL_ID`         | `WoodCraft_dressup_panel`  |
-| `DRESSUP_PANEL_NAME`       | `Dress Up`                 |
-| Dress Up `CMD_ID`          | `WoodCraft_dressUp`        |
+| `DRESSUP_PANEL_NAME`       | `Cabinet Builder`          |
+| Carcass Maker `CMD_ID`     | `WoodCraft_dressUp`        |
 | Trim `CMD_ID`              | `WoodCraft_trim`           |

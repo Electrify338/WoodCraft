@@ -35,7 +35,7 @@ app = adsk.core.Application.get()
 ui = app.userInterface
 
 CMD_ID = f'{config.COMPANY_NAME}_dressUp'
-CMD_NAME = 'Dress Up'
+CMD_NAME = 'Carcass Maker'
 CMD_Description = (
     'Convert selected faces of a solid body into individual panel components, '
     'each with its own thickness, direction and offset.'
@@ -505,7 +505,13 @@ def command_execute(args: adsk.core.CommandEventArgs):
 
 
 def _build_panel(p: dict):
-    """Extrude one panel body, in its own component, from `p['face']`."""
+    """Extrude the skeleton face itself into a panel body, in its own component.
+
+    Extruding the BRepFace directly (rather than a projected sketch profile)
+    keeps the panel associatively linked to the skeleton: when the skeleton
+    body's parameters change, the face changes and every panel follows. The
+    extrude is created inside a new component but references the external face,
+    which Fusion tracks as a cross-component dependency."""
     design = adsk.fusion.Design.cast(app.activeProduct)
     root = design.rootComponent
 
@@ -518,26 +524,17 @@ def _build_panel(p: dict):
     panel_comp = occ.component
     panel_comp.name = p['name']
 
-    sketch = panel_comp.sketches.add(face)
-    sketch.project(face)
-    profile = sketch.profiles.item(0)
-
-    # A solid's outer face normal points outward; a positive extrude follows the
-    # sketch normal. inward_sign drives the extrusion *into* the body.
-    _, face_normal = face.evaluator.getNormalAtPoint(face.pointOnFace)
-    sketch_normal = sketch.xDirection.crossProduct(sketch.yDirection)
-    sketch_normal.normalize()
-    inward_sign = -1.0 if sketch_normal.dotProduct(face_normal) > 0 else 1.0
-
     extrudes = panel_comp.features.extrudeFeatures
-    ext_input = extrudes.createInput(profile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+    # The face is the profile. A positive extrude follows the face's outward
+    # normal, so "Inside" (into the body) is the negative direction.
+    ext_input = extrudes.createInput(face, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
 
     if direction == 'Symmetric':
         # Symmetric distance is measured per side, so half the thickness each way.
         ext_input.setDistanceExtent(True, adsk.core.ValueInput.createByReal(thickness / 2.0))
-        build_sign = inward_sign
+        build_sign = -1.0
     else:
-        build_sign = inward_sign if direction == 'Inside' else -inward_sign
+        build_sign = -1.0 if direction == 'Inside' else 1.0
         ext_input.setDistanceExtent(False, adsk.core.ValueInput.createByReal(build_sign * thickness))
 
     if abs(offset) > 1e-9:

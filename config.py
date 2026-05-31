@@ -28,6 +28,7 @@ DESIGN_WORKSPACE_ID = 'FusionSolidEnvironment'
 TAB_ID = f'{COMPANY_NAME}_tab'
 TAB_NAME = 'WoodCraft'
 
-# Toolbar panels (groups of related commands inside the tab).
+# Toolbar panels (groups of related commands inside the tab). The id is kept
+# stable for backwards compatibility; only the display name changes.
 DRESSUP_PANEL_ID = f'{COMPANY_NAME}_dressup_panel'
-DRESSUP_PANEL_NAME = 'Dress Up'
+DRESSUP_PANEL_NAME = 'Cabinet Builder'
