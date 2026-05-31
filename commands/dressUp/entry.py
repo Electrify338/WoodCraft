@@ -112,7 +112,9 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
     # One-shot helper: pick a face, then press this to add every other flat face
     # of the same body. Done as an explicit button (not reactive) so it never
     # fights the user clicking faces on/off.
-    collect_btn = inputs.addBoolValueInput(COLLECT_BTN_ID, 'Collect all flat faces', True, '', False)
+    collect_btn = inputs.addBoolValueInput(
+        COLLECT_BTN_ID, 'Collect all flat faces', False, os.path.join(ICON_FOLDER, 'collect'), False
+    )
     collect_btn.tooltip = 'Add every flat face of the bodies you have already picked a face from.'
 
     inputs.addValueInput(
@@ -138,13 +140,15 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
     table.minimumVisibleRows = 1
     table.maximumVisibleRows = 10
 
-    # Action "buttons" implemented as checkbox-style inputs that reset
-    # themselves after firing. (A non-checkbox BoolValueInput needs a real icon
-    # folder; checkbox style works with no resources and won't break the dialog.)
-    defaults_btn = group.children.addBoolValueInput(DEFAULTS_BTN_ID, 'Reset rows to defaults', True, '', False)
+    # Action buttons with custom icons.
+    defaults_btn = group.children.addBoolValueInput(
+        DEFAULTS_BTN_ID, 'Reset rows to defaults', False, os.path.join(ICON_FOLDER, 'defaults'), False
+    )
     defaults_btn.tooltip = 'Reset every panel row back to the global thickness, direction and offset.'
-    delete_btn = group.children.addBoolValueInput(DELETE_BTN_ID, 'Delete selected row', True, '', False)
-    delete_btn.tooltip = 'Select a row in the table, then check this to remove it.'
+    delete_btn = group.children.addBoolValueInput(
+        DELETE_BTN_ID, 'Delete selected row', False, os.path.join(ICON_FOLDER, 'delete'), False
+    )
+    delete_btn.tooltip = 'Select a row in the table, then click this to remove it.'
 
     futil.add_handler(args.command.execute, command_execute, local_handlers=local_handlers)
     futil.add_handler(args.command.inputChanged, command_input_changed, local_handlers=local_handlers)
