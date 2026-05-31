@@ -1,0 +1,13 @@
+{
+	"autodeskProduct":	"Fusion",
+	"type":	"addin",
+	"author":	"Abdelrahman Youssry",
+	"description":	{
+		"":	"An addon to make creating cabinets faster and more seemless"
+	},
+	"version":	"",
+	"runOnStartup":	false,
+	"supportedOS":	"windows",
+	"editEnabled":	true,
+	"iconFilename":	"AddInIcon.svg"
+}
