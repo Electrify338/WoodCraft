@@ -30,5 +30,26 @@ TAB_NAME = 'WoodCraft'
 
 # Toolbar panels (groups of related commands inside the tab). The id is kept
 # stable for backwards compatibility; only the display name changes.
+#
+# Commands are split across two panels so the modelling step and the
+# hardware/machining step read as distinct groups in the toolbar (the gap
+# between panels acts as the separator):
+#   - Cabinet Builder : modelling commands (Carcass Maker, Trim, Edit
+#                       Thickness, Shelf Creator).
+#   - Hardware        : cut panels with hardware cut points (Sculpt). A separate
+#                       output panel (BOM, Labels) can be added later.
 DRESSUP_PANEL_ID = f'{COMPANY_NAME}_dressup_panel'
 DRESSUP_PANEL_NAME = 'Cabinet Builder'
+
+HARDWARE_PANEL_ID = f'{COMPANY_NAME}_hardware_panel'
+HARDWARE_PANEL_NAME = 'Hardware'
+
+# ---------------------------------------------------------------------------
+# Hardware library
+# ---------------------------------------------------------------------------
+# The Insert Hardware command reads its catalogue from a dedicated Fusion cloud
+# project whose top-level folders are the hardware categories (e.g. "Hinges",
+# "Connectors", "Dowels") and whose files are the individual hardware parts.
+# Set this to the EXACT display name of that project. If the command can't find
+# it, the dialog lists the projects it CAN see so you can copy the right name.
+HARDWARE_PROJECT_NAME = 'WoodCraft Hardware'

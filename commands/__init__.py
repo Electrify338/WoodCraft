@@ -6,6 +6,8 @@ from .dressUp import entry as dressUp
 from .trim import entry as trim
 from .editThickness import entry as editThickness
 from .shelf import entry as shelf
+from .insertHardware import entry as insertHardware
+from .sculpt import entry as sculpt
 
 # Fusion automatically calls start() and stop() on each of these.
 commands = [
@@ -13,6 +15,8 @@ commands = [
     trim,
     editThickness,
     shelf,
+    insertHardware,
+    sculpt,
 ]
 
 
