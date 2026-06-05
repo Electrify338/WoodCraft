@@ -44,6 +44,11 @@ DRESSUP_PANEL_NAME = 'Cabinet Builder'
 HARDWARE_PANEL_ID = f'{COMPANY_NAME}_hardware_panel'
 HARDWARE_PANEL_NAME = 'Hardware'
 
+# Developer / debug tools — kept in their own segment so they're easy to find
+# and easy to strip out before release.
+DEV_PANEL_ID = f'{COMPANY_NAME}_dev_panel'
+DEV_PANEL_NAME = 'Dev'
+
 # ---------------------------------------------------------------------------
 # Hardware library
 # ---------------------------------------------------------------------------
@@ -53,3 +58,15 @@ HARDWARE_PANEL_NAME = 'Hardware'
 # Set this to the EXACT display name of that project. If the command can't find
 # it, the dialog lists the projects it CAN see so you can copy the right name.
 HARDWARE_PROJECT_NAME = 'WoodCraft Hardware'
+
+# ---------------------------------------------------------------------------
+# Panel tagging
+# ---------------------------------------------------------------------------
+# WoodCraft stamps every panel component with this invisible custom attribute so
+# later output commands (cut list, BOM, labels) can reliably collect "the panels"
+# regardless of how the model was built — including across referenced cabinets.
+# Carcass Maker and Shelf Creator tag automatically; the Convert to Panel command
+# tags hand-modelled or imported components. The tag is saved inside the .f3d.
+PANEL_ATTR_GROUP = 'WoodCraft'
+PANEL_ATTR_NAME = 'panel'
+PANEL_ATTR_VALUE = 'true'

@@ -51,3 +51,15 @@ def remove_command(panel_id: str, cmd_id: str):
     cmd_def = ui.commandDefinitions.itemById(cmd_id)
     if cmd_def:
         cmd_def.deleteMe()
+
+
+def tag_as_panel(component) -> bool:
+    """Stamp a component as a WoodCraft panel (idempotent) so the cut list and
+    other output commands can find it regardless of how it was modelled. Returns
+    False if the tag couldn't be written (e.g. a referenced/read-only component)."""
+    try:
+        component.attributes.add(
+            config.PANEL_ATTR_GROUP, config.PANEL_ATTR_NAME, config.PANEL_ATTR_VALUE)
+        return True
+    except Exception:
+        return False

@@ -539,6 +539,7 @@ def _build_panel(p: dict):
     occ = root.occurrences.addNewComponent(adsk.core.Matrix3D.create())
     panel_comp = occ.component
     panel_comp.name = p['name']
+    ui_helpers.tag_as_panel(panel_comp)
 
     extrudes = panel_comp.features.extrudeFeatures
     # The face is the profile. A positive extrude follows the face's outward

@@ -181,6 +181,7 @@ def _build_shelf(sketch_ref, walls, offsets, thickness):
     occ = root.occurrences.addNewComponent(adsk.core.Matrix3D.create())
     shelf_comp = occ.component
     shelf_comp.name = 'Shelf'
+    ui_helpers.tag_as_panel(shelf_comp)
 
     sketch = shelf_comp.sketches.add(sketch_ref)
 
