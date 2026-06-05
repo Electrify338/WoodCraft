@@ -10,10 +10,13 @@ Safe to remove later: delete this folder and its two lines in commands/__init__.
 It lives in its own Dev panel (segment) at the end of the WoodCraft tab.
 """
 
+import os
+
 import adsk.core
 import adsk.fusion
 
 from .. import ui_helpers
+from .. import panels
 from ...lib import fusionAddInUtils as futil
 from ... import config
 
@@ -27,7 +30,7 @@ IS_PROMOTED = True
 
 PANEL_ID = config.DEV_PANEL_ID
 PANEL_NAME = config.DEV_PANEL_NAME
-ICON_FOLDER = ''
+ICON_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'resources', '')
 
 RESULT_ID = 'ip_result'
 
@@ -61,46 +64,29 @@ def _dims_mm(component):
 
 
 def _collect():
-    """(findAttributes_count, [(name, dims_mm_or_None), ...]) for tagged panels."""
+    """(findAttributes_count, [(name, dims_mm, qty), ...]) for tagged panels.
+
+    Uses the shared collector so this dev view matches exactly what Cut List sees.
+    """
     design = adsk.fusion.Design.cast(app.activeProduct)
     if not design:
         return None, []
 
-    grp, name = config.PANEL_ATTR_GROUP, config.PANEL_ATTR_NAME
-    root = design.rootComponent
-
-    rows = []
-    seen = set()
-    occs = root.allOccurrences
-    for i in range(occs.count):
-        comp = occs.item(i).component
-        try:
-            if not comp.attributes.itemByName(grp, name):
-                continue
-        except Exception:
-            continue
-        try:
-            token = comp.entityToken
-        except Exception:
-            token = None
-        if token is not None:
-            if token in seen:
-                continue
-            seen.add(token)
-        rows.append((comp.name, _dims_mm(comp)))
-
-    # Panels modelled directly in the root component (no sub-occurrence).
-    try:
-        if root.attributes.itemByName(grp, name):
-            rows.append((root.name, _dims_mm(root)))
-    except Exception:
-        pass
+    agg = {}
+    order = []
+    for it in panels.collect_panel_instances(design):
+        key = it['comp_name']
+        if key not in agg:
+            agg[key] = {'name': key, 'dims': (it['L'], it['W'], it['T']), 'qty': 0}
+            order.append(key)
+        agg[key]['qty'] += 1
+    rows = [(agg[k]['name'], agg[k]['dims'], agg[k]['qty']) for k in order]
 
     try:
-        fa_count = design.findAttributes(grp, name).count
+        fa_count = design.findAttributes(
+            config.PANEL_ATTR_GROUP, config.PANEL_ATTR_NAME).count
     except Exception:
         fa_count = -1
-
     return fa_count, rows
 
 
@@ -119,13 +105,12 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
     elif not rows:
         html = f'No tagged panels found. (findAttributes count: {fa_count})'
     else:
-        lines = [f'<b>{len(rows)}</b> tagged panel(s) '
+        pieces = sum(q for _, _, q in rows)
+        lines = [f'<b>{pieces}</b> panel(s) in <b>{len(rows)}</b> unique size(s) '
                  f'&nbsp;<i>(findAttributes: {fa_count})</i><br>']
-        for nm, dims in rows:
-            if dims:
-                lines.append(f'{nm}: &nbsp; {dims[0]:.1f} &times; {dims[1]:.1f} &times; {dims[2]:.1f} mm')
-            else:
-                lines.append(f'{nm}: &nbsp; (no bounding box)')
+        for nm, dims, qty in rows:
+            q = f'{qty}&times; ' if qty > 1 else ''
+            lines.append(f'{q}{nm}: &nbsp; {dims[0]:.1f} &times; {dims[1]:.1f} &times; {dims[2]:.1f} mm')
         html = '<br>'.join(lines)
 
     box = inputs.addTextBoxCommandInput(RESULT_ID, '', html, 18, True)

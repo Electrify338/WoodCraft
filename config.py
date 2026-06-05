@@ -44,6 +44,10 @@ DRESSUP_PANEL_NAME = 'Cabinet Builder'
 HARDWARE_PANEL_ID = f'{COMPANY_NAME}_hardware_panel'
 HARDWARE_PANEL_NAME = 'Hardware'
 
+# Output / production reports (cut list & nest today; BOM, labels later).
+OUTPUT_PANEL_ID = f'{COMPANY_NAME}_output_panel'
+OUTPUT_PANEL_NAME = 'Output'
+
 # Developer / debug tools — kept in their own segment so they're easy to find
 # and easy to strip out before release.
 DEV_PANEL_ID = f'{COMPANY_NAME}_dev_panel'

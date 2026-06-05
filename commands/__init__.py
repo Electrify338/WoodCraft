@@ -9,6 +9,7 @@ from .shelf import entry as shelf
 from .convertPanel import entry as convertPanel
 from .insertHardware import entry as insertHardware
 from .sculpt import entry as sculpt
+from .cutList import entry as cutList
 from .inspectPanels import entry as inspectPanels  # DEV — remove later
 
 # Fusion automatically calls start() and stop() on each of these.
@@ -20,6 +21,7 @@ commands = [
     convertPanel,
     insertHardware,
     sculpt,
+    cutList,
     inspectPanels,  # DEV — remove later
 ]
 
