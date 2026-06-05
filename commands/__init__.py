@@ -2,7 +2,7 @@
 # Each command lives in its own sub-folder with an `entry` module exposing
 # start() and stop(). Add a new command by creating a folder, importing its
 # entry module here, and appending it to the `commands` list.
-from .dressUp import entry as dressUp
+from .carcassMaker import entry as carcassMaker
 from .trim import entry as trim
 from .editThickness import entry as editThickness
 from .shelf import entry as shelf
@@ -14,7 +14,7 @@ from .inspectPanels import entry as inspectPanels  # DEV — remove later
 
 # Fusion automatically calls start() and stop() on each of these.
 commands = [
-    dressUp,
+    carcassMaker,
     trim,
     editThickness,
     shelf,

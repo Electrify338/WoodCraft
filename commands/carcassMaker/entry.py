@@ -1,4 +1,4 @@
-"""Dress Up — convert selected faces of a skeleton body into panel components.
+"""Carcass Maker — convert selected faces of a skeleton body into panel components.
 
 Workflow:
   1. The user selects one or more planar faces of a solid "skeleton" body
@@ -34,7 +34,7 @@ from ... import config
 app = adsk.core.Application.get()
 ui = app.userInterface
 
-CMD_ID = f'{config.COMPANY_NAME}_dressUp'
+CMD_ID = f'{config.COMPANY_NAME}_carcassMaker'
 CMD_NAME = 'Carcass Maker'
 CMD_Description = (
     'Convert selected faces of a solid body into individual panel components, '
@@ -42,21 +42,21 @@ CMD_Description = (
 )
 IS_PROMOTED = True
 
-PANEL_ID = config.DRESSUP_PANEL_ID
-PANEL_NAME = config.DRESSUP_PANEL_NAME
+PANEL_ID = config.CABINET_PANEL_ID
+PANEL_NAME = config.CABINET_PANEL_NAME
 
 ICON_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'resources', '')
 
 # Input ids.
-COLLECT_BTN_ID = 'dressup_collect'
-FACES_INPUT_ID = 'dressup_faces'
-THICKNESS_INPUT_ID = 'dressup_thickness'
-DIRECTION_INPUT_ID = 'dressup_direction'
-OFFSET_INPUT_ID = 'dressup_offset'
-ADV_GROUP_ID = 'dressup_adv_group'
-TABLE_ID = 'dressup_table'
-DEFAULTS_BTN_ID = 'dressup_defaults'
-DELETE_BTN_ID = 'dressup_delete'
+COLLECT_BTN_ID = 'carcass_collect'
+FACES_INPUT_ID = 'carcass_faces'
+THICKNESS_INPUT_ID = 'carcass_thickness'
+DIRECTION_INPUT_ID = 'carcass_direction'
+OFFSET_INPUT_ID = 'carcass_offset'
+ADV_GROUP_ID = 'carcass_adv_group'
+TABLE_ID = 'carcass_table'
+DEFAULTS_BTN_ID = 'carcass_defaults'
+DELETE_BTN_ID = 'carcass_delete'
 
 DIRECTIONS = ['Inside', 'Outside', 'Symmetric']
 
@@ -476,7 +476,7 @@ def _update_graphics():
         _graphics_group = group
         app.activeViewport.refresh()
     except Exception:
-        futil.handle_error('Dress Up: update graphics')
+        futil.handle_error('Carcass Maker: update graphics')
 
 
 # ---------------------------------------------------------------------------
@@ -503,7 +503,7 @@ def command_execute(args: adsk.core.CommandEventArgs):
             _build_panel(p)
             created += 1
         except Exception:
-            futil.handle_error(f'Dress Up: failed to create "{p.get("name", "?")}"')
+            futil.handle_error(f'Carcass Maker: failed to create "{p.get("name", "?")}"')
 
     # Hide the skeleton bodies now that the panels exist — the carcass is the
     # set of panel components, the skeleton was just the input shape.

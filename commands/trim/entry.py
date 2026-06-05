@@ -1,6 +1,6 @@
 """Trim — cut panels so they fit against other panels, with an optional gap.
 
-Dress Up leaves panels overlapping at the corners. Trim resolves those overlaps
+Carcass Maker leaves panels overlapping at the corners. Trim resolves those overlaps
 using Fusion's Combine (cut): the user picks the panels to trim and the panels
 to trim them *with*, and each target has the tool panels subtracted from it.
 
@@ -30,8 +30,8 @@ CMD_Description = (
 )
 IS_PROMOTED = True
 
-PANEL_ID = config.DRESSUP_PANEL_ID
-PANEL_NAME = config.DRESSUP_PANEL_NAME
+PANEL_ID = config.CABINET_PANEL_ID
+PANEL_NAME = config.CABINET_PANEL_NAME
 
 ICON_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'resources', '')
 

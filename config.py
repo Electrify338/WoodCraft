@@ -28,18 +28,15 @@ DESIGN_WORKSPACE_ID = 'FusionSolidEnvironment'
 TAB_ID = f'{COMPANY_NAME}_tab'
 TAB_NAME = 'WoodCraft'
 
-# Toolbar panels (groups of related commands inside the tab). The id is kept
-# stable for backwards compatibility; only the display name changes.
-#
-# Commands are split across two panels so the modelling step and the
-# hardware/machining step read as distinct groups in the toolbar (the gap
-# between panels acts as the separator):
-#   - Cabinet Builder : modelling commands (Carcass Maker, Trim, Edit
-#                       Thickness, Shelf Creator).
-#   - Hardware        : cut panels with hardware cut points (Sculpt). A separate
-#                       output panel (BOM, Labels) can be added later.
-DRESSUP_PANEL_ID = f'{COMPANY_NAME}_dressup_panel'
-DRESSUP_PANEL_NAME = 'Cabinet Builder'
+# Toolbar panels (groups of related commands inside the tab). Commands are split
+# across panels so each step reads as a distinct group (the gap between panels
+# acts as the separator):
+#   - Cabinet Builder : modelling commands (Carcass Maker, Trim, Edit Thickness,
+#                       Shelf Creator, Convert to Panel).
+#   - Hardware        : Insert Hardware + Sculpt (place parts, cut their holes).
+#   - Output / Dev    : reports and debug tools (see below).
+CABINET_PANEL_ID = f'{COMPANY_NAME}_cabinet_panel'
+CABINET_PANEL_NAME = 'Cabinet Builder'
 
 HARDWARE_PANEL_ID = f'{COMPANY_NAME}_hardware_panel'
 HARDWARE_PANEL_NAME = 'Hardware'

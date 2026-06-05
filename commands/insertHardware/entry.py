@@ -41,9 +41,9 @@ CMD_Description = (
 )
 IS_PROMOTED = True
 
-# Lives in the main (Cabinet Builder) panel alongside the modelling commands.
-PANEL_ID = config.DRESSUP_PANEL_ID
-PANEL_NAME = config.DRESSUP_PANEL_NAME
+# Lives in the Hardware panel alongside Sculpt.
+PANEL_ID = config.HARDWARE_PANEL_ID
+PANEL_NAME = config.HARDWARE_PANEL_NAME
 
 RES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'resources')
 ICON_FOLDER = os.path.join(RES_DIR, '')
@@ -51,7 +51,7 @@ PLACEHOLDER = os.path.join(RES_DIR, 'thumb_placeholder.png')
 # Reuse Carcass Maker's "defaults" (reset) icon for the Refresh button.
 DEFAULTS_ICON_FOLDER = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    'dressUp', 'resources', 'defaults')
+    'carcassMaker', 'resources', 'defaults')
 
 TYPE_DD_ID = 'ih_type'
 ITEM_DD_ID = 'ih_item'

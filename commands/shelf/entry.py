@@ -34,8 +34,8 @@ CMD_Description = (
 )
 IS_PROMOTED = True
 
-PANEL_ID = config.DRESSUP_PANEL_ID
-PANEL_NAME = config.DRESSUP_PANEL_NAME
+PANEL_ID = config.CABINET_PANEL_ID
+PANEL_NAME = config.CABINET_PANEL_NAME
 
 ICON_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'resources', '')
 
