@@ -1,41 +1,50 @@
 # WoodCraft — UI / Icon Guide for Agents
 
 This document is for agents (or people) working on the **visual side** of the
-WoodCraft add-in: command icons, the toolbar tab, and any future palettes. It
-describes what the code already wires up so you know exactly which files to
-touch and which names/IDs to honour. **Do not rename IDs** — they are how the
-runtime finds and removes UI elements.
+WoodCraft add-in: command icons, the toolbar tab, and the Sheets palette. It
+describes what the code already wires up so you know exactly which files to touch
+and which names/IDs to honour. **Do not rename IDs** — they are how the runtime
+finds and removes UI elements.
 
 ---
 
 ## 1. Where the UI lives
 
 WoodCraft adds a dedicated tab to Fusion's **Design** workspace. Everything is
-built at runtime from Python; there is no static UI definition file.
+built at runtime from Python; there is no static UI definition file. The tab is
+split into four panels (the gap between panels reads as a workflow separator):
 
 ```
 Design workspace (FusionSolidEnvironment)
-└── Tab:  "WoodCraft"             id = WoodCraft_tab
-    └── Panel: "Cabinet Builder"  id = WoodCraft_dressup_panel
-        ├── Carcass Maker  (button) id = WoodCraft_dressUp
-        ├── Trim           (button) id = WoodCraft_trim
-        ├── Edit Thickness (button) id = WoodCraft_editThickness
-        └── Shelf Creator  (button) id = WoodCraft_shelf
+└── Tab: "WoodCraft"                       id = WoodCraft_tab
+    ├── Panel: "Cabinet Builder"           id = WoodCraft_cabinet_panel
+    │   ├── Carcass Maker    (button)      id = WoodCraft_carcassMaker
+    │   ├── Trim             (button)      id = WoodCraft_trim
+    │   ├── Edit Thickness   (button)      id = WoodCraft_editThickness
+    │   ├── Shelf Creator    (button)      id = WoodCraft_shelf
+    │   └── Convert to Panel (button)      id = WoodCraft_convertPanel
+    ├── Panel: "Hardware"                  id = WoodCraft_hardware_panel
+    │   ├── Insert Hardware  (button)      id = WoodCraft_insertHardware
+    │   └── Sculpt           (button)      id = WoodCraft_sculpt
+    ├── Panel: "Output"                    id = WoodCraft_output_panel
+    │   ├── Sheets           (palette)     id = WoodCraft_sheets
+    │   └── Cut List & Nest  (button)      id = WoodCraft_cutList
+    └── Panel: "Dev"                       id = WoodCraft_dev_panel
+        └── Inspect Panels   (button)      id = WoodCraft_inspectPanels   (removable)
 ```
 
-All of these IDs are defined in [`config.py`](../config.py). The tab and panel
-are created lazily by the first command that starts and removed when the last
-command stops — see [`commands/ui_helpers.py`](../commands/ui_helpers.py). When
-you add a new panel or tab, add its ID/name constants to `config.py`, never
-hard-code strings in command files.
+All panel IDs/names are defined in [`config.py`](../config.py); each command's
+`CMD_ID` is in its own `entry.py`. The tab and panels are created lazily by the
+first command that starts and removed when the last command stops — see
+[`commands/ui_helpers.py`](../commands/ui_helpers.py). When you add a panel/tab,
+add its ID/name constants to `config.py`; never hard-code strings in command files.
 
 ---
 
 ## 2. Command icons
 
 Each command points at a `resources/` folder next to its `entry.py` via the
-`ICON_FOLDER` constant. Fusion looks inside that folder for these exact
-filenames:
+`ICON_FOLDER` constant. Fusion looks inside that folder for these exact filenames:
 
 | File        | Used for                                  |
 |-------------|-------------------------------------------|
@@ -43,77 +52,66 @@ filenames:
 | `32x32.png` | Standard toolbar button                   |
 | `64x64.png` | High-DPI displays                         |
 
-Optional but recommended (Fusion will use them if present):
+Optional but recommended (Fusion uses them if present): `96x96.png` and
+`disabled-16x16.png` / `disabled-32x32.png` / `disabled-64x64.png` (greyed-out
+state). To restyle a command, replace the PNGs in place using the **same
+filenames** — no code change needed.
 
-| File        | Used for                                  |
-|-------------|-------------------------------------------|
-| `96x96.png` | Extra high-DPI                            |
-| `disabled-16x16.png` / `disabled-32x32.png` / `disabled-64x64.png` | Greyed-out state when the command is unavailable |
+### Icon folders (folder name ≠ display name)
 
-### Current state — custom artwork
+| Command          | Folder (`commands/…/resources/`)   | `CMD_ID`               |
+|------------------|------------------------------------|------------------------|
+| Carcass Maker    | `carcassMaker/`                    | `WoodCraft_carcassMaker` |
+| Trim             | `trim/`                            | `WoodCraft_trim`       |
+| Edit Thickness   | `editThickness/`                   | `WoodCraft_editThickness` |
+| Shelf Creator    | `shelf/`                           | `WoodCraft_shelf`      |
+| Convert to Panel | `convertPanel/`                    | `WoodCraft_convertPanel` |
+| Insert Hardware  | `insertHardware/`                  | `WoodCraft_insertHardware` |
+| Sculpt           | `sculpt/`                          | `WoodCraft_sculpt`     |
+| Sheets           | `sheets/`                          | `WoodCraft_sheets`     |
+| Cut List & Nest  | `cutList/`                         | `WoodCraft_cutList`    |
+| Inspect Panels   | `inspectPanels/`                   | `WoodCraft_inspectPanels` |
 
-Each command's `resources/` folder holds **custom WoodCraft icons** (16/32/64).
-To restyle a command, replace the PNGs in place using the **same filenames** —
-no code change is needed.
-
-Icon folders:
-
-| Command        | Folder                                          |
-|----------------|-------------------------------------------------|
-| Carcass Maker  | `commands/dressUp/resources/`                   |
-| Trim           | `commands/trim/resources/`                      |
-| Edit Thickness | `commands/editThickness/resources/`             |
-| Shelf Creator  | `commands/shelf/resources/`                     |
-| Sheets         | `commands/sheets/resources/`                    |
-| Cut List & Nest| `commands/cutList/resources/`                   |
-
-> **Sheets** (Output panel, `CMD_ID = WoodCraft_sheets`) currently ships a
-> placeholder icon generated by `generate_sheets()` in
-> [`generate_icons.py`](../generate_icons.py) — a stack of stock boards in
-> different material tones. Replace the three PNGs in `commands/sheets/resources/`
-> (or refine `generate_sheets()` and re-run it) with finished artwork. Motif:
-> a stack of stock sheets / a sheet with a material swatch.
-
-> Note: the **folder names differ from the display names** (Carcass Maker lives
-> in `dressUp/`, Shelf Creator in `shelf/`, Edit Thickness in `editThickness/`).
 > The folder name is internal; the display name comes from `CMD_NAME` in each
-> `entry.py`. If you find stray icon-only folders like `panelThickness/` or
-> `shelfCreator/`, they are leftovers and not used by any command.
+> `entry.py`. If you find stray icon-only folders named after display names (e.g.
+> `panelThickness/`, `shelfCreator/`), they're leftovers — icons must live in the
+> folder the command's `ICON_FOLDER` points at.
+
+Every command has custom artwork. A shared accent palette is used so the set feels
+like a family: WoodCraft **yellow** `#E5C05B`/`#F3D573` for panels/stock, **red**
+`#EF4444` for cut/edit/trim accents (Trim, Edit Thickness, Sculpt, and the Inspect
+Panels magnifying glass), **orange** `#F47426` for the Convert-to-Panel badge.
+Icons are generated by [`generate_icons.py`](../generate_icons.py) (Pillow; a
+dev-only script, **`.gitignore`d** and not shipped). To re-render just one icon,
+call its `generate_*()` + `save_icon_sizes(img, <its resources folder>)` rather
+than running `__main__` (which rewrites every icon and would clobber custom art).
 
 There is also a top-level [`AddInIcon.svg`](../AddInIcon.svg) (referenced by
-`WoodCraft.manifest`) used as the add-in's icon in Fusion's Scripts & Add-Ins
-dialog.
+`WoodCraft.manifest`) used as the add-in's icon in the Scripts & Add-Ins dialog.
 
-### Icon design notes
-- PNG, transparent background, square.
-- Keep the glyph readable at 16×16 — simple silhouettes, not fine detail.
-- Match Fusion's monochrome/line-art toolbar style so buttons feel native.
-- Motif ideas: **Carcass Maker** = a box turning into separated panels;
-  **Trim** = a panel with a notch where another panel meets it;
-  **Edit Thickness** = a panel with a thickness arrow;
-  **Shelf Creator** = a shelf spanning between two sides.
-
-### Dialog action-button icons
-The Carcass Maker dialog has three in-dialog action buttons — **Collect all flat
-faces**, **Reset rows to defaults**, and **Delete selected row** — created as
+### Dialog action-button icons (Carcass Maker)
+Carcass Maker's dialog has three in-dialog action buttons — **Collect all flat
+faces**, **Reset rows to defaults**, **Delete selected row** — created as
 icon `BoolValueInput`s (non-checkbox) that reset themselves after firing. Each
-points at its own icon sub-folder under the command's `resources/`:
+points at its own sub-folder:
 
-| Button         | Icon sub-folder                          | id (in `entry.py`) |
-|----------------|------------------------------------------|--------------------|
-| Collect faces  | `commands/dressUp/resources/collect/`    | `COLLECT_BTN_ID`   |
-| Reset defaults | `commands/dressUp/resources/defaults/`   | `DEFAULTS_BTN_ID`  |
-| Delete row     | `commands/dressUp/resources/delete/`     | `DELETE_BTN_ID`    |
+| Button         | Icon sub-folder                              | id (in `entry.py`) |
+|----------------|----------------------------------------------|--------------------|
+| Collect faces  | `commands/carcassMaker/resources/collect/`   | `COLLECT_BTN_ID`   |
+| Reset defaults | `commands/carcassMaker/resources/defaults/`  | `DEFAULTS_BTN_ID`  |
+| Delete row     | `commands/carcassMaker/resources/delete/`    | `DELETE_BTN_ID`    |
 
-Each sub-folder holds its own 16/32/64 PNGs. (A non-checkbox `BoolValueInput`
-*must* have a valid icon folder — an empty one throws and silently aborts the
-dialog setup, so always keep these populated.)
+> A **non-checkbox** `BoolValueInput` *must* have a valid icon folder — an empty
+> one throws and silently aborts the dialog (see the project memory on
+> `command_created` swallowing errors). **Checkbox-style** (`isCheckBox=True`)
+> self-resetting buttons work with an empty `''` folder — that's what the Sheets/
+> Cut-List dialogs use where no icon exists.
 
 ---
 
 ## 3. Adding a new command (for reference)
 
-The pattern every command follows (see `commands/dressUp/entry.py` as the
+The pattern every command follows (see `commands/carcassMaker/entry.py` as the
 reference implementation):
 
 1. Create `commands/<name>/` with `__init__.py` (empty), `entry.py`, and a
@@ -124,64 +122,74 @@ reference implementation):
 3. Register the module in [`commands/__init__.py`](../commands/__init__.py).
 
 `CMD_ID` convention: `f'{config.COMPANY_NAME}_<camelCaseName>'`
-(e.g. `WoodCraft_dressUp`). Keep it globally unique.
+(e.g. `WoodCraft_carcassMaker`). Keep it globally unique.
 
 ---
 
-## 4. Palettes (HTML/JS UI) — the Sheets stock library
+## 4. The Sheets palette (HTML/JS UI)
 
-**Sheets** (`commands/sheets/`, `CMD_ID = WoodCraft_sheets`, Output panel) is the
-first WoodCraft **palette**: a docked web view that edits the global stock-sheet
-library (Material → Sheets, mirroring Fusion's Process Material Library). The
-toolbar button is a thin launcher — `command_created` calls `ui.palettes.add(...)`
-(once) and sets `isVisible = True`.
+**Sheets** (`commands/sheets/`, `CMD_ID = WoodCraft_sheets`, Output panel) is a
+docked **palette** that edits the global stock-sheet library (Material → Sheets,
+mirroring Fusion's Nesting *Process Material Library*). The toolbar button is a
+thin launcher: `command_created` opens the palette (`ui.palettes.add`) and adds
+**no command inputs**, so the command auto-executes with **no command dialog**
+(`Command.isAutoExecute` defaults to True — adding any input would force a dialog).
 
-UI files (vanilla HTML/CSS/JS, no build step) live in
-`commands/sheets/resources/html/`:
+UI files (vanilla HTML/CSS/JS, no build step) in `commands/sheets/resources/html/`:
 
-| File         | Role                                                        |
-|--------------|-------------------------------------------------------------|
-| `index.html` | Layout: header (Save/Export/Import), category filter, tree + detail panel |
-| `style.css`  | Fusion-dark theme (`--accent` = WoodCraft yellow `#E5C05B`)  |
-| `main.js`    | All logic: tree render, edits, the Python bridge            |
+| File         | Role                                                              |
+|--------------|-------------------------------------------------------------------|
+| `index.html` | Layout: header (Save / Refresh / Export / Import), category filter, tree + detail panel |
+| `style.css`  | Fusion-dark theme (`--accent` = WoodCraft yellow `#E5C05B`)        |
+| `main.js`    | All logic: tree render, edits, the Python bridge                  |
 
-| Constant (in `commands/sheets/entry.py`) | Value                          |
-|------------------------------------------|--------------------------------|
-| `PALETTE_ID`                             | `WoodCraft_sheets_palette`     |
+`PALETTE_ID = WoodCraft_sheets_palette` (in `commands/sheets/entry.py`).
 
 **Python ↔ JS bridge.** JS calls `adsk.fusionSendData(action, jsonString)`; the
-`incomingFromHTML` handler in `entry.py` replies via `args.returnData`. Actions:
+`incomingFromHTML` handler in `entry.py` replies via `args.returnData`:
 
-| Action   | JS sends            | Python returns                                   |
-|----------|---------------------|--------------------------------------------------|
-| `ready`  | `{}`                | `{library:{materials:[...]}, designMaterials:[...], path, rotations}` |
-| `save`   | `{materials:[...]}` | `{ok, count, path}` (writes the global library)   |
-| `export` | `{materials:[...]}` | `{ok, path}` / `{cancelled}` (file Save dialog)   |
+| Action   | JS sends            | Python returns                                              |
+|----------|---------------------|------------------------------------------------------------|
+| `ready`  | `{}`                | `{library:{materials:[...]}, designMaterials:[...], designGroups:[...], path, rotations}` |
+| `save`   | `{materials:[...]}` | `{ok, count, path}` (writes the global library)            |
+| `export` | `{materials:[...]}` | `{ok, path}` / `{cancelled}` (file Save dialog)            |
 | `import` | `{}`                | `{ok, materials, path}` / `{cancelled}` (file Open dialog) |
 
-The library itself is owned by `commands/sheets_store.py` (pure, no Fusion API);
-the design's real material names come from `panels.design_panel_materials(design)`.
+The library is owned by `commands/sheets_store.py` (pure, no Fusion API); the
+design's real material names come from `panels.design_panel_materials(design)` and
+`panels.design_panel_groups(design)`.
 
-If the palette ever renders blank on a newer Fusion, switch `ui.palettes.add(...)`
-to `ui.palettes.add2(..., useNewWebBrowser=True)` — the same `adsk.fusionSendData`
-/ `window.fusionJavaScriptHandler` bridge applies. Restyling is pure CSS/HTML in
-`resources/html/`; no Python change needed. UI agents own the visual polish here.
+### Fusion webview gotchas (learned the hard way — keep these)
+- **Palette URL must be a `file://` URI.** Pass `pathlib.Path(path).as_uri()`, not a
+  raw Windows path (a backslash path becomes a broken `file:///C:/%5C…` URL).
+- **`<datalist>` popups clip.** Fusion's webview renders datalist suggestions
+  *in-page*, so a scrolling `overflow` container crops them. Use a real `<select>`
+  (its popup renders above the page). Long-value fields stack the control under the
+  label (`.field.wide`) so they don't get cut off horizontally.
+- **Pin layout to the viewport** (`body{height:100vh;overflow:hidden}`) and let the
+  tree/detail panels scroll, or bottom fields clip.
+- If the palette ever renders **blank** on a newer Fusion, switch
+  `ui.palettes.add(...)` → `ui.palettes.add2(..., useNewWebBrowser=True)`; the same
+  `adsk.fusionSendData` / `window.fusionJavaScriptHandler` bridge applies.
+
+> **Note:** Fusion **command-dialog** text boxes (`addTextBoxCommandInput`) render
+> as **plain text** here — HTML tags show up raw. Use plain text + `\n`. (Only the
+> *palette* renders real HTML/CSS; so does the browser cut-list report.)
 
 ---
 
 ## 5. Quick reference — IDs you must not change
 
-| Constant (in `config.py`)   | Value                      |
-|-----------------------------|----------------------------|
-| `COMPANY_NAME`              | `WoodCraft`                |
-| `DESIGN_WORKSPACE_ID`      | `FusionSolidEnvironment`   |
-| `TAB_ID` / `TAB_NAME`      | `WoodCraft_tab` / WoodCraft |
-| `DRESSUP_PANEL_ID`         | `WoodCraft_dressup_panel`  |
-| `DRESSUP_PANEL_NAME`       | `Cabinet Builder`          |
-| Carcass Maker `CMD_ID`     | `WoodCraft_dressUp`        |
-| Trim `CMD_ID`              | `WoodCraft_trim`           |
-| Edit Thickness `CMD_ID`    | `WoodCraft_editThickness`  |
-| Shelf Creator `CMD_ID`     | `WoodCraft_shelf`          |
-| `OUTPUT_PANEL_ID` / NAME   | `WoodCraft_output_panel` / Output |
-| Sheets `CMD_ID`            | `WoodCraft_sheets`         |
-| Cut List & Nest `CMD_ID`   | `WoodCraft_cutList`        |
+| Constant (in `config.py`)     | Value                               |
+|-------------------------------|-------------------------------------|
+| `COMPANY_NAME`                | `WoodCraft`                         |
+| `DESIGN_WORKSPACE_ID`         | `FusionSolidEnvironment`            |
+| `TAB_ID` / `TAB_NAME`         | `WoodCraft_tab` / WoodCraft         |
+| `CABINET_PANEL_ID` / NAME     | `WoodCraft_cabinet_panel` / Cabinet Builder |
+| `HARDWARE_PANEL_ID` / NAME    | `WoodCraft_hardware_panel` / Hardware |
+| `OUTPUT_PANEL_ID` / NAME      | `WoodCraft_output_panel` / Output   |
+| `DEV_PANEL_ID` / NAME         | `WoodCraft_dev_panel` / Dev         |
+
+Command `CMD_ID`s (each in its own `entry.py`): `WoodCraft_carcassMaker`,
+`_trim`, `_editThickness`, `_shelf`, `_convertPanel`, `_insertHardware`, `_sculpt`,
+`_sheets` (+ palette `WoodCraft_sheets_palette`), `_cutList`, `_inspectPanels`.
