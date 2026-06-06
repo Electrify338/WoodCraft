@@ -1,111 +1,133 @@
 # WoodCraft
 
-A lightweight Autodesk Fusion add-in for cabinetmaking — a lean, open alternative
-to tools like JoinerCAD, focused on turning a simple "skeleton" body into a set of
-parametric panel components and joining them, without the bloat or subscription.
+A lightweight Autodesk **Fusion** add-in for cabinetmaking — a lean, open
+alternative to tools like JoinerCAD. It turns a simple "skeleton" body into
+parametric panel components, joins and machines them, and produces material‑aware
+cut lists with colour‑coded nesting diagrams — without the bloat or a subscription.
 
-> **Status:** early development. Four commands are working — Carcass Maker, Trim,
-> Edit Thickness and Shelf Creator — with more planned.
-
----
-
-## Features
-
-All commands live in a dedicated **WoodCraft** tab in the Design workspace, under
-the **Cabinet Builder** panel.
-
-### Carcass Maker
-Turns the flat faces of a solid "skeleton" body (typically a box representing the
-outer shell of a cabinet) into individual panel components.
-
-- Select planar faces; each becomes its own component containing one panel body.
-- Panels are extruded **directly from the skeleton face**, so they stay
-  associatively linked — change the skeleton's parameters and the whole cabinet
-  updates.
-- Global defaults for **thickness**, **direction** (Inside / Outside / Symmetric)
-  and **offset**, plus a per-panel **Advanced Control** table to override name,
-  thickness, direction and offset for each panel individually.
-- **Collect all flat faces** button grabs every flat face of a picked body in one
-  click.
-- On-screen name **labels** and direction **arrows** while the dialog is open,
-  with the skeleton dimmed for readability; the skeleton is hidden once the
-  panels are built.
-
-Panels are intentionally left overlapping at the corners — that's what Trim is for.
-
-### Edit Thickness
-Changes the thickness of existing panels. Select one or more panels and enter a
-new thickness — it edits each panel's extrude feature **in place** (scaling its
-extent so the direction and offset are preserved), rather than adding new
-geometry. The field prefills with the selected panel's current thickness.
-
-### Trim
-Cuts panels so they fit against each other, using Fusion's Combine (cut).
-
-- Pick the **panels to trim** and the **panels to trim them with**.
-- Optional **gap** leaves a uniform clearance/reveal between them (0 = flush cut),
-  e.g. a reveal around a door or clearance so a bottom panel doesn't bind between
-  two sides.
-
-### Shelf Creator
-Builds a parametric shelf panel on a chosen plane, bounded by four faces.
-
-- Pick the **shelf plane** (a face or construction plane), then **four bounding
-  faces** (the surrounding walls) each with its own **offset**, plus a
-  **thickness**.
-- Each shelf edge is the intersection of a wall with the shelf plane, kept
-  associative with collinear constraints, so the shelf tracks the walls when
-  their parameters change.
-- The four edges are closed into a rectangle from their corner intersections, so
-  any offset works — positive (inset), negative (overhang) or uneven per side.
-- The four bounding faces are numbered **1–4** in the viewport to match the
-  offset fields.
-
-### Planned
-Miter, distributed shelves & dividers, materials, BOM, and CAM helpers (see
-`JoinerCAD_Addon_Analysis.md` for the broader reference set this is modelled on).
+> **Status:** active development. Ten commands across four toolbar panels
+> (modelling, hardware, output and dev). Pure Python + the Fusion API — **no
+> external packages, no build step**.
 
 ---
 
-## Installation
+## What's inside
 
-This is a standard Fusion **Python add-in**.
+Everything lives in a dedicated **WoodCraft** tab in the **Design** workspace,
+split into panels that read as a workflow (design → hardware → output):
 
-1. Copy/clone this folder into your Fusion add-ins directory:
-   - **Windows:** `%appData%\Autodesk\Autodesk Fusion 360\API\AddIns\WoodCraft`
-2. In Fusion, open **Utilities → Add-Ins → Scripts and Add-Ins** (or press
-   `Shift+S`).
-3. On the **Add-Ins** tab, select **WoodCraft** and click **Run**. Tick *Run on
-   Startup* if you want it loaded automatically.
-4. Switch to the **Design** workspace — the **WoodCraft** tab appears in the
-   toolbar.
+### Cabinet Builder (modelling)
+| Command | What it does |
+|---|---|
+| **Carcass Maker** | Select the flat faces of a solid "skeleton" box; each becomes its own panel component, extruded **directly from the face** so it stays associative. Global thickness / direction (Inside·Outside·Symmetric) / offset, plus a per‑panel override table, a "Collect all flat faces" button, and on‑screen labels + build‑direction arrows. |
+| **Trim** | Combine‑cuts panels so they fit against each other, with an optional uniform **gap** (clearance/reveal; 0 = flush). |
+| **Edit Thickness** | Re‑thickness existing panels by editing the extrude extent **in place** (preserves direction + offset). Prefills the current thickness. |
+| **Shelf Creator** | Builds a parametric shelf on a chosen plane bounded by four faces, each with its own offset (positive, negative or uneven), kept associative to the walls. |
+| **Convert to Panel** | Tags hand‑modelled or imported components/bodies as WoodCraft panels so the output commands can find them. |
 
-Requires a Fusion version with the `OffsetFacesFeatures` and `CombineFeatures`
-APIs (current releases). Windows is the declared supported OS in the manifest.
+### Hardware (machining)
+| Command | What it does |
+|---|---|
+| **Insert Hardware** | Inserts parts from a Fusion **cloud library** (top‑level folders = categories) linked at the origin, then launches Fusion's Move gizmo to position them. Thumbnail preview, module cache, and a Refresh button. *(Needs a cloud project — see setup.)* |
+| **Sculpt** | Combine‑cuts panels with hardware "tool" bodies that intersect them (e.g. hinge cups, dowel holes), keeping the tool bodies. The productised "machining" step. |
+
+### Output (production)
+| Command | What it does |
+|---|---|
+| **Sheets** | A docked **HTML palette** that edits a global stock‑sheet **library** modelled on Fusion's Nesting *Process Material Library*: **Material → Sheets**. Each material has a name (matching the Fusion material), thickness, category and a display **colour**; each sheet has a size, cost and nesting params (rotation, item separation, edge trim). Save / **Export** / **Import** for sharing. |
+| **Cut List & Nest** | Collects all panels, groups them by **(material, thickness)**, matches each group to the Sheets library, and opens a **colour‑coded HTML report**: cut‑list table, per‑sheet **guillotine nesting** diagrams, sheet count, yield, optional cost, and a printable label sheet. Pick one or more assemblies (or the whole design), and choose which stock sheet to nest on when a material has several. |
+
+### Dev
+| Command | What it does |
+|---|---|
+| **Inspect Panels** | Lists every component tagged as a WoodCraft panel with its cut size — a debugging aid. Self‑contained and safe to delete before release. |
 
 ---
 
-## Usage
+## How panels & materials work
 
-**Build a carcass**
-1. Model a solid box at the cabinet's outer dimensions (the "skeleton").
-2. Run **Cabinet Builder → Carcass Maker**.
-3. Click a face (or use **Collect all flat faces**), set thickness/direction/offset,
-   tweak individual panels in the table if needed, and click **OK**.
+- **Panel tagging.** Every panel component carries an invisible custom attribute
+  (`WoodCraft / panel / true`). Carcass Maker and Shelf Creator tag automatically;
+  Convert to Panel tags existing geometry. Output commands collect panels by this
+  tag (with a flat‑sheet geometry fallback), so they work across referenced
+  cabinets in a larger assembly.
+- **Material = Fusion's native material.** Cut List reads each panel's Fusion
+  physical material name and matches it (plus thickness) to the Sheets library.
+  Assign real materials to your parts in Fusion, define matching stock in the
+  **Sheets** palette, and nesting/costing follows. Parts with no matching stock
+  are listed as a warning rather than nested.
 
-**Trim the joints**
-1. Run **Cabinet Builder → Trim**.
-2. Select the panels to trim, then the panels to trim them with, set a gap if you
-   want clearance, and click **OK**.
+---
 
-**Add a shelf**
-1. Run **Cabinet Builder → Shelf Creator**.
-2. Pick the shelf plane, then the four surrounding faces (watch the 1–4 labels),
-   set each offset and the thickness, and click **OK**.
+## Installation & setup
 
-**Change a panel's thickness**
-1. Run **Cabinet Builder → Edit Thickness**, pick the panel(s) — the field shows
-   the current thickness — type the new value and click **OK**.
+This is a standard Fusion **Python add-in** — drop the folder in, enable it, done.
+There is **nothing to `pip install` and no build step**.
+
+### 1. Get the files
+- **Zip:** unzip it, **or**
+- **GitHub:** `git clone` the repo, or use **Code → Download ZIP**.
+
+> ⚠️ **The folder must be named exactly `WoodCraft`.** Fusion matches the folder
+> name to `WoodCraft.py` / `WoodCraft.manifest`, and the add-in derives its name
+> from the folder. GitHub's "Download ZIP" gives you a `WoodCraft-main/` folder —
+> **rename it to `WoodCraft`**. (A `git clone` of a repo named `WoodCraft` is
+> already correct.)
+
+### 2. Put it in the Fusion add‑ins folder
+- **Windows:** `%APPDATA%\Autodesk\Autodesk Fusion 360\API\AddIns\WoodCraft`
+- **macOS:** `~/Library/Application Support/Autodesk/Autodesk Fusion 360/API/AddIns/WoodCraft`
+
+### 3. Enable it
+1. In Fusion, open **Utilities → Add‑Ins** (or press **`Shift+S`**) → **Add‑Ins** tab.
+2. Select **WoodCraft** → **Run**. Tick **Run on Startup** to load it automatically.
+3. Switch to the **Design** workspace — the **WoodCraft** tab appears.
+
+That's it — the stock‑sheet library auto‑creates with sensible defaults the first
+time you open **Sheets** or run **Cut List**, so there's nothing else to configure.
+
+### Notes for testers
+- **macOS:** the manifest declares `"supportedOS": "windows"`, so Fusion on a Mac
+  won't list the add-in until you change that line in `WoodCraft.manifest` to
+  `"mac"` (or remove the key). The code itself is cross‑platform.
+- **Insert Hardware** is the only feature needing external setup: it reads a Fusion
+  cloud project named **`WoodCraft Hardware`** (set in `config.py` →
+  `HARDWARE_PROJECT_NAME`). Without it, that one command just shows an empty
+  catalogue and lists the projects it *can* see; **everything else works with zero
+  config.**
+- **For a "release" build:** set `DEBUG = False` in `config.py` (quiets the Text
+  Commands log) and optionally delete `commands/inspectPanels/` (the Dev tool).
+
+### Requirements
+- A recent **Autodesk Fusion** (uses standard Design‑workspace APIs — extrude,
+  combine, offset‑faces, custom graphics, palettes). Fusion ships its own Python;
+  no separate Python install.
+- No third‑party Python packages at runtime. *(The optional `generate_icons.py`
+  needs Pillow, but it's a dev‑only icon generator and isn't shipped.)*
+
+---
+
+## Quick start
+
+1. **Model a skeleton** box at the cabinet's outer dimensions.
+2. **Carcass Maker** → pick faces (or *Collect all flat faces*), set thickness /
+   direction / offset, **OK**. → **Trim** to resolve the corner overlaps.
+3. **Shelf Creator** for shelves; **Edit Thickness** to re‑thickness anything.
+4. Assign **Fusion materials** to your panels.
+5. **Sheets** → define your stock (use **+ From design** to pull in the materials
+   the design actually uses), set sizes / cost / colour, **Save**.
+6. **Cut List & Nest** → pick the assemblies (or leave empty for the whole design)
+   → the colour‑coded report opens in your browser.
+
+---
+
+## Sharing your stock library
+
+The library is a single portable JSON file at
+`%APPDATA%\WoodCraft\sheets.json` (Windows) — colours, costs and sheets included.
+Share it by sending that file (the recipient drops it in their own
+`%APPDATA%\WoodCraft\`) or, more conveniently, use the **Export / Import** buttons
+in the Sheets palette.
 
 ---
 
@@ -113,35 +135,45 @@ APIs (current releases). Windows is the declared supported OS in the manifest.
 
 ```
 WoodCraft/
-├── WoodCraft.py              # add-in entry point (run/stop)
-├── WoodCraft.manifest        # Fusion add-in manifest
-├── config.py                 # shared ids: company, tab, panel names
+├── WoodCraft.py                # add-in entry point (run / stop)
+├── WoodCraft.manifest          # Fusion add-in manifest
+├── AddInIcon.svg               # add-in icon
+├── config.py                   # shared ids, panel names, DEBUG, hardware project name
 ├── commands/
-│   ├── __init__.py           # registers the commands
-│   ├── ui_helpers.py         # shared tab/panel creation + teardown
-│   ├── dressUp/              # Carcass Maker command
-│   ├── trim/                 # Trim command
-│   ├── editThickness/        # Edit Thickness command
-│   └── shelf/                # Shelf Creator command
-├── lib/fusionAddInUtils/     # Autodesk add-in template helpers (logging, events)
-├── docs/UI_GUIDE.md          # icon/UI guide for design work
-└── JoinerCAD_Addon_Analysis.md   # reference analysis of the tool this mimics
+│   ├── __init__.py             # registers every command
+│   ├── ui_helpers.py           # shared tab/panel creation, teardown, panel tagging
+│   ├── panels.py               # shared panel collector + material reading
+│   ├── nesting.py              # pure-math guillotine nester + SVG (no Fusion API)
+│   ├── sheets_store.py         # global stock-sheet library (load/save/match; pure)
+│   ├── carcassMaker/  trim/  editThickness/  shelf/  convertPanel/
+│   ├── insertHardware/  sculpt/
+│   ├── sheets/                 # Sheets palette: entry.py + resources/html/{index,style,main}
+│   ├── cutList/                # Cut List & Nest
+│   └── inspectPanels/          # Dev tool (removable)
+├── lib/fusionAddInUtils/       # Autodesk template helpers (logging, event wiring)
+└── docs/UI_GUIDE.md            # icon / UI guide for design work
 ```
 
-Each command is a self-contained folder with an `entry.py` exposing `start()` and
-`stop()`. To add one, create the folder, import it in `commands/__init__.py`, and
-append it to the `commands` list. See `docs/UI_GUIDE.md` for the toolbar/icon
-conventions and the IDs that must stay stable.
+Each command is a self‑contained folder with an `entry.py` exposing `start()` /
+`stop()`. To add one: create the folder, import it in `commands/__init__.py`,
+append it to the `commands` list, and drop icons in its `resources/`. See
+`docs/UI_GUIDE.md` for toolbar/icon conventions and the IDs that must stay stable.
 
 ---
 
 ## Notes & known limitations
 
-- Command and action-button **icons are custom artwork** under each command's
-  `resources/` folder (see `docs/UI_GUIDE.md` for the layout).
-- The Trim **gap** is positive (clearance) only; a negative-offset "groove" mode
-  was explored and removed because Fusion lacks a clean uniform solid-offset API.
-  (Shelf Creator offsets, by contrast, do support negatives.)
-- Shelf Creator assumes the four bounding faces form two parallel pairs (the
-  normal cabinet case: two sides + back + front).
-- Author: Abdelrahman Youssry.
+- **Nesting is guillotine** (full edge‑to‑edge cuts, panel‑saw friendly). It tries
+  several heuristics and keeps the tightest layout, but won't beat true‑shape
+  nesting on yield. Fusion's own Nesting *Process Material Library* is **not**
+  API‑readable (paid extension), which is why WoodCraft keeps its own library.
+- **Trim gap** is positive (clearance) only — a negative‑offset "groove" mode was
+  removed for lack of a clean uniform solid‑offset API. (Shelf offsets *do* allow
+  negatives.)
+- **Shelf Creator** assumes the four bounding faces form two parallel pairs (the
+  normal cabinet case).
+- **UI/icons** are maintained partly by separate passes; see `docs/UI_GUIDE.md`.
+
+---
+
+**Author:** Abdelrahman Youssry
