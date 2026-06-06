@@ -91,14 +91,33 @@ def _esc(s):
     return str(s).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
 
-def sheet_svg(placements, sheet_len, sheet_wid, trim, scale):
+def _darken(hex_color, factor=0.65):
+    """Return a darker shade of a '#rrggbb' colour for part outlines. Falls back to
+    the input on anything unparseable."""
+    try:
+        h = str(hex_color).strip().lstrip('#')
+        if len(h) == 3:
+            h = ''.join(c * 2 for c in h)
+        r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+        r, g, b = (max(0, min(255, int(c * factor))) for c in (r, g, b))
+        return f'#{r:02X}{g:02X}{b:02X}'
+    except Exception:
+        return hex_color
+
+
+def sheet_svg(placements, sheet_len, sheet_wid, trim, scale, fill=None, stroke=None):
     """SVG of one sheet drawn at FULL size (sheet_len x sheet_wid), with the trim
     margin shown as a dashed inner border and the sheet dimensions labelled.
 
     Placement x/y are in usable (post-trim) coords, so parts are offset by `trim`
     onto the full sheet. Drawing the full sheet means the picture stays the same
     size when trim changes — only the usable border moves in.
+
+    `fill`/`stroke` colour the parts (e.g. the material's display colour); they
+    default to the standard yellow so existing/standalone callers are unaffected.
     """
+    part_fill = fill or '#F3D573'
+    part_stroke = stroke or (_darken(fill) if fill else '#A8842F')
     ml, mt, mr, mb = 34, 18, 10, 10          # margins for the dimension labels
     sw, sh = sheet_len * scale, sheet_wid * scale
     ox, oy = ml, mt
@@ -122,7 +141,7 @@ def sheet_svg(placements, sheet_len, sheet_wid, trim, scale):
         py = oy + (trim + p['y']) * scale
         pw, ph = p['w'] * scale, p['h'] * scale
         out.append(f'<rect x="{px:.1f}" y="{py:.1f}" width="{pw:.1f}" height="{ph:.1f}" '
-                   f'fill="#F3D573" stroke="#A8842F" stroke-width="1"/>')
+                   f'fill="{part_fill}" stroke="{part_stroke}" stroke-width="1"/>')
         if min(pw, ph) > 26:
             cx, cy = px + pw / 2, py + ph / 2
             out.append(f'<text x="{cx:.0f}" y="{cy - 2:.0f}" font-size="11" font-family="Arial" '

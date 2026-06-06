@@ -21,6 +21,31 @@ def _is_tagged_panel(component):
         return False
 
 
+def panel_material(component):
+    """Native Fusion material name for a panel, or '' if none is set.
+
+    Prefers the material of the component's single body (the usual case for a
+    panel — a material dragged onto the body wins over the component default),
+    then the component-level material. The Cut List matches panels to stock
+    sheets by this name, so it must reflect what the user assigned in Fusion.
+    """
+    try:
+        bodies = component.bRepBodies
+        if bodies.count == 1:
+            mat = bodies.item(0).material
+            if mat:
+                return mat.name
+    except Exception:
+        pass
+    try:
+        mat = component.material
+        if mat:
+            return mat.name
+    except Exception:
+        pass
+    return ''
+
+
 def panel_dims_mm(component):
     """Sorted (L, W, T) in millimetres from the component's bounding box, or None."""
     try:
@@ -51,10 +76,49 @@ def _make_instance(occ_or_comp, comp, dims, tagged):
         'name': getattr(occ_or_comp, 'name', comp.name),
         'comp_name': comp.name,
         'L': L, 'W': W, 'T': T,
+        'material': panel_material(comp),
         'tagged': tagged,
         'component': comp,
         'occurrence': occ_or_comp,
     }
+
+
+def design_panel_materials(design):
+    """Sorted, distinct Fusion material names found on panels in `design` — the
+    exact strings Cut List matches against. Reused by the Sheets palette (to offer
+    real names) and Cut List. Empty list if no design / none found."""
+    if design is None:
+        return []
+    found = set()
+    try:
+        for it in collect_panel_instances(design):
+            mat = (it.get('material') or '').strip()
+            if mat:
+                found.add(mat)
+    except Exception:
+        pass
+    return sorted(found)
+
+
+def design_panel_groups(design):
+    """[{'material','thickness','count'}] for the design's panels, grouped by
+    (material name, thickness mm). Lets the Sheets palette show/offer the exact
+    (name, thickness) combinations present in the design. Sorted by name, then
+    thickness descending."""
+    if design is None:
+        return []
+    groups = {}
+    try:
+        for it in collect_panel_instances(design):
+            mat = (it.get('material') or '').strip() or 'Unassigned'
+            t = round(it['T'], 1)
+            key = (mat, t)
+            groups[key] = groups.get(key, 0) + 1
+    except Exception:
+        pass
+    out = [{'material': k[0], 'thickness': k[1], 'count': v} for k, v in groups.items()]
+    out.sort(key=lambda g: (g['material'].lower(), -g['thickness']))
+    return out
 
 
 def collect_panel_instances(design, root=None, use_geometry_fallback=True):

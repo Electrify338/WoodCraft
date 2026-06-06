@@ -41,7 +41,8 @@ CABINET_PANEL_NAME = 'Cabinet Builder'
 HARDWARE_PANEL_ID = f'{COMPANY_NAME}_hardware_panel'
 HARDWARE_PANEL_NAME = 'Hardware'
 
-# Output / production reports (cut list & nest today; BOM, labels later).
+# Output / production reports (Sheets stock library + Cut List & Nest today;
+# BOM, labels later).
 OUTPUT_PANEL_ID = f'{COMPANY_NAME}_output_panel'
 OUTPUT_PANEL_NAME = 'Output'
 

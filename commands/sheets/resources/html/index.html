@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WoodCraft — Stock Library</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="title">Stock Library</div>
+    <div class="actions">
+      <button id="btnSave" class="primary" title="Save the library">Save</button>
+      <button id="btnRefresh" title="Re-read the library file from disk and re-detect the design's materials (discards unsaved edits)">Refresh</button>
+      <button id="btnExport" title="Export the library to a file you can share">Export…</button>
+      <button id="btnImport" title="Import a library file from someone else">Import…</button>
+    </div>
+  </header>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <div class="bar">
+    <label>Category
+      <select id="categoryFilter"><option value="">All</option></select>
+    </label>
+    <button id="btnAddMaterial" title="Add a new blank material">+ Material</button>
+    <button id="btnFromDesign" title="Add the materials detected in the current design (name + thickness) that aren't in the library yet">+ From design</button>
+  </div>
+
+  <main>
+    <section id="tree" class="tree" aria-label="Materials and sheets"></section>
+    <section id="detail" class="detail"></section>
+  </main>
+
+  <footer>
+    <span id="pathNote" class="path"></span>
+  </footer>
+
+  <!-- datalist of the design's real Fusion material names, so names always match nesting -->
+  <datalist id="designMaterials"></datalist>
+
+  <script src="main.js"></script>
+</body>
+</html>

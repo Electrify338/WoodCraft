@@ -9,6 +9,7 @@ from .shelf import entry as shelf
 from .convertPanel import entry as convertPanel
 from .insertHardware import entry as insertHardware
 from .sculpt import entry as sculpt
+from .sheets import entry as sheets
 from .cutList import entry as cutList
 from .inspectPanels import entry as inspectPanels  # DEV — remove later
 
@@ -21,6 +22,7 @@ commands = [
     convertPanel,
     insertHardware,
     sculpt,
+    sheets,
     cutList,
     inspectPanels,  # DEV — remove later
 ]

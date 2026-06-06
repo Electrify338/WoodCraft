@@ -1,15 +1,16 @@
-"""Cut List & Nest — collect WoodCraft panels and produce a cut-list report.
+"""Cut List & Nest — collect WoodCraft panels and produce a cut-list / nest report.
 
-PHASE 1 (this version): walks the design (or a selected assembly) for WoodCraft
-panels via the shared collector, groups them by thickness then size, and opens an
-HTML report in the browser with the cut list and an *estimated* sheet count per
-thickness. Stock sheet size, kerf, edge trim and rotation are editable inputs.
-
-PHASE 2 (next): real rectangle nesting — per-sheet SVG layout diagrams, exact
-sheet count + yield %, and a printable label sheet.
+Panels are collected via the shared collector (commands/panels.py), grouped by
+**(Fusion material name, thickness)**, and each group is matched to a material in the
+global Sheets library (commands/sheets_store.py). Each matched group is nested on one
+of that material's stock sheets — when a material has more than one sheet, the dialog
+shows a dropdown so you pick which sheet to nest on (per-sheet params: item
+separation → part gap, edge trim, rotation). The report is colour-coded per material
+(the colour set in the Sheets palette) so it reads at a glance, with per-sheet SVG
+layouts, yield, cost, a printable label sheet, and warnings for unmatched/oversized
+parts.
 """
 
-import math
 import os
 import re
 import pathlib
@@ -23,6 +24,7 @@ import adsk.fusion
 from .. import ui_helpers
 from .. import panels
 from .. import nesting
+from .. import sheets_store
 from ...lib import fusionAddInUtils as futil
 from ... import config
 
@@ -32,8 +34,9 @@ ui = app.userInterface
 CMD_ID = f'{config.COMPANY_NAME}_cutList'
 CMD_NAME = 'Cut List & Nest'
 CMD_Description = (
-    'Collect all WoodCraft panels and open a cut-list report grouped by thickness, '
-    'with an estimated sheet count. Visual nesting comes next.'
+    'Collect all WoodCraft panels and open a colour-coded cut-list & nesting report. '
+    'Panels match the Sheets library by material + thickness; pick the stock sheet to '
+    'nest on when a material has several.'
 )
 IS_PROMOTED = True
 
@@ -44,13 +47,14 @@ ICON_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'resource
 NAME_ID = 'cl_name'
 QTY_ID = 'cl_qty'
 SCOPE_ID = 'cl_scope'
-SHEET_L_ID = 'cl_sheet_l'
-SHEET_W_ID = 'cl_sheet_w'
-KERF_ID = 'cl_kerf'
-TRIM_ID = 'cl_trim'
-ROTATE_ID = 'cl_rotate'
+INFO_ID = 'cl_info'
+PICK_GROUP_ID = 'cl_pickers'
+
+UNMATCHED_COLOR = '#c2c2c2'
 
 local_handlers = []
+# Per-invocation pickers: [{'key': (name_lower, thickness), 'picker_id', 'sheet_names'}].
+_pickers = []
 
 
 def start():
@@ -66,6 +70,47 @@ def stop():
     ui_helpers.remove_command(PANEL_ID, CMD_ID)
 
 
+# ---------------------------------------------------------------------------
+# Grouping + matching helpers (shared by the dialog and the report)
+# ---------------------------------------------------------------------------
+def _group_instances(instances):
+    """Ordered list of {key, material, thickness, items} grouped by (material name,
+    thickness). 'Unassigned' stands in for panels with no Fusion material."""
+    groups = {}
+    order = []
+    for it in instances:
+        material = (it.get('material') or '').strip() or 'Unassigned'
+        t = round(it['T'], 1)
+        key = (material.lower(), t)
+        if key not in groups:
+            groups[key] = {'key': key, 'material': material, 'thickness': t, 'items': []}
+            order.append(key)
+        groups[key]['items'].append(it)
+    order.sort(key=lambda k: (k[0], -k[1]))
+    return [groups[k] for k in order]
+
+
+def _sheet_label(sheet):
+    return f"{sheet.get('name', 'Sheet')} ({sheet['length']:.0f}×{sheet['width']:.0f})"
+
+
+def _pick_sheet(material, key, choices):
+    """The chosen sheet for a material: the dropdown selection if any, else its
+    first/primary sheet. None if the material has no sheets."""
+    sheets = material.get('sheets') or []
+    if not sheets:
+        return None
+    want = choices.get(key)
+    if want:
+        for sh in sheets:
+            if sh.get('name') == want:
+                return sh
+    return sheets[0]
+
+
+# ---------------------------------------------------------------------------
+# Dialog
+# ---------------------------------------------------------------------------
 def command_created(args: adsk.core.CommandCreatedEventArgs):
     futil.log(f'{CMD_NAME} Command Created Event')
     inputs = args.command.commandInputs
@@ -86,15 +131,73 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
     scope.addSelectionFilter('Occurrences')
     scope.setSelectionLimits(0, 1)
 
-    inputs.addValueInput(SHEET_L_ID, 'Sheet length', 'mm', adsk.core.ValueInput.createByString('2440 mm'))
-    inputs.addValueInput(SHEET_W_ID, 'Sheet width', 'mm', adsk.core.ValueInput.createByString('1220 mm'))
-    inputs.addValueInput(KERF_ID, 'Saw kerf', 'mm', adsk.core.ValueInput.createByString('3 mm'))
-    inputs.addValueInput(TRIM_ID, 'Edge trim', 'mm', adsk.core.ValueInput.createByString('0 mm'))
-    rot = inputs.addBoolValueInput(ROTATE_ID, 'Allow rotation (ignore grain)', True, '', True)
-    rot.tooltip = 'Allow parts to rotate 90° for better yield. Turn off when grain direction matters.'
+    info = inputs.addTextBoxCommandInput(INFO_ID, '', '', 4, True)
+    try:
+        info.isFullWidth = True
+    except Exception:
+        pass
 
+    # Register handlers BEFORE building dynamic pickers: command_created swallows
+    # exceptions, so a throw while building pickers must not strip the handlers.
     futil.add_handler(args.command.execute, command_execute, local_handlers=local_handlers)
     futil.add_handler(args.command.destroy, command_destroy, local_handlers=local_handlers)
+
+    _build_pickers(inputs, design)
+
+
+def _build_pickers(inputs, design):
+    """Group the whole design's panels, match to the library, and add a sheet-picker
+    dropdown for every matched material that has MORE THAN ONE sheet (single-sheet
+    and unmatched materials need no choice). Whole-design grouping is a superset of
+    any scoped subset, so the pickers cover every group execute might see."""
+    global _pickers
+    _pickers = []
+
+    materials = sheets_store.load()['materials']
+    groups = _group_instances(panels.collect_panel_instances(design)) if design else []
+    for g in groups:
+        g['mat'] = sheets_store.find_material(materials, g['material'], g['thickness'])
+
+    matched = [g for g in groups if g['mat']]
+    unmatched = [g for g in groups if not g['mat']]
+
+    # This command-input textbox renders as PLAIN text (HTML tags show up raw),
+    # so use plain text + newlines — no <b>/<br>.
+    parts = [f"{len(groups)} material/thickness group(s); {len(matched)} matched to a stock material."]
+    if unmatched:
+        names = ', '.join(f"{g['material']} ({g['thickness']:.0f} mm)" for g in unmatched)
+        parts.append(f"{len(unmatched)} with no stock material: {names}. "
+                     f"Add them in the Sheets palette (+ From design).")
+    inputs.itemById(INFO_ID).text = '\n'.join(parts) if groups else \
+        'No panels found yet. Build/convert panels, then reopen.'
+
+    multi = [g for g in matched if len(g['mat'].get('sheets') or []) >= 2]
+    if not multi:
+        return
+
+    grp = inputs.addGroupCommandInput(PICK_GROUP_ID, 'Sheet to nest on')
+    grp.isExpanded = True
+    for idx, g in enumerate(multi):
+        sheets = g['mat']['sheets']
+        dd = grp.children.addDropDownCommandInput(
+            f'cl_pick_{idx}', f"{g['material']} {g['thickness']:.0f}mm",
+            adsk.core.DropDownStyles.TextListDropDownStyle)
+        for i, sh in enumerate(sheets):
+            dd.listItems.add(_sheet_label(sh), i == 0)
+        _pickers.append({'key': g['key'], 'picker_id': dd.id,
+                         'sheet_names': [sh.get('name') for sh in sheets]})
+
+
+def _read_choices(inputs):
+    """Map each picker's (material, thickness) key → chosen sheet name."""
+    choices = {}
+    for p in _pickers:
+        dd = inputs.itemById(p['picker_id'])
+        if dd and dd.selectedItem:
+            idx = dd.selectedItem.index
+            if 0 <= idx < len(p['sheet_names']):
+                choices[p['key']] = p['sheet_names'][idx]
+    return choices
 
 
 def command_execute(args: adsk.core.CommandEventArgs):
@@ -114,13 +217,6 @@ def command_execute(args: adsk.core.CommandEventArgs):
         except Exception:
             root = None
 
-    params = {
-        'sheet_l': inputs.itemById(SHEET_L_ID).value * 10.0,   # cm -> mm
-        'sheet_w': inputs.itemById(SHEET_W_ID).value * 10.0,
-        'kerf': inputs.itemById(KERF_ID).value * 10.0,
-        'trim': inputs.itemById(TRIM_ID).value * 10.0,
-        'rotate': inputs.itemById(ROTATE_ID).value,
-    }
     qty = max(1, int(inputs.itemById(QTY_ID).value))
     report_name = (inputs.itemById(NAME_ID).value or '').strip()
     if not report_name:
@@ -136,10 +232,12 @@ def command_execute(args: adsk.core.CommandEventArgs):
         return
     instances = instances * qty   # global assembly quantity multiplier
 
-    sections = _build_sections(instances, params)
+    materials = sheets_store.load()['materials']
+    choices = _read_choices(inputs)
+    sections = _build_sections(instances, materials, choices)
 
     try:
-        html = _build_html(sections, instances, params, report_name)
+        html = _build_html(sections, instances, report_name, materials)
         out = os.path.join(tempfile.gettempdir(), _safe_filename(report_name) + '.html')
         with open(out, 'w', encoding='utf-8') as f:
             f.write(html)
@@ -150,57 +248,73 @@ def command_execute(args: adsk.core.CommandEventArgs):
 
     total_sheets = sum(s['num_sheets'] for s in sections)
     total_unplaced = sum(len(s['unplaced']) for s in sections)
+    unmatched = [s for s in sections if not s['matched']]
+    total_unmatched = sum(s['pieces'] for s in unmatched)
+    total_cost = sum(s['cost'] for s in sections)
+
     msg = (f'Cut list "{report_name}" (×{qty}): {len(instances)} panel(s) across '
-           f'{len(sections)} thickness group(s) → {total_sheets} sheet(s).')
+           f'{len(sections)} material/thickness group(s) → {total_sheets} sheet(s).')
+    if total_cost:
+        msg += f'\nEstimated stock cost: {total_cost:.2f}.'
+    if total_unmatched:
+        groups = ', '.join(f"{s['material']} ({s['thickness']:.0f} mm)" for s in unmatched)
+        msg += (f'\n⚠ {total_unmatched} panel(s) have no matching stock material: '
+                f'{groups}. Add them in the Sheets palette (the "+ From design" button '
+                f'creates them from the design), then give each a sheet.')
     if total_unplaced:
-        msg += f'\n⚠ {total_unplaced} part(s) too large for the sheet (see report).'
+        msg += f'\n⚠ {total_unplaced} part(s) too large for their sheet (see report).'
     msg += '\n\nReport opened in your browser.'
     ui.messageBox(msg)
 
 
 # ---------------------------------------------------------------------------
-# Grouping + estimate
+# Build sections (group → matched sheet → nest)
 # ---------------------------------------------------------------------------
-def _build_sections(instances, params):
-    by_t = {}
-    for it in instances:
-        by_t.setdefault(round(it['T'], 1), []).append(it)
-
+def _build_sections(instances, materials, choices):
     sections = []
-    for t in sorted(by_t.keys(), reverse=True):
-        items = by_t[t]
+    for g in _group_instances(instances):
+        items = g['items']
+        material, t, key = g['material'], g['thickness'], g['key']
+
         parts = {}
         area = 0.0
         rects = []
         for idx, it in enumerate(items):
             L, W = max(it['L'], it['W']), min(it['L'], it['W'])
-            key = (round(L, 1), round(W, 1))
-            p = parts.setdefault(key, {'L': key[0], 'W': key[1], 'qty': 0, 'names': {}})
+            pk = (round(L, 1), round(W, 1))
+            p = parts.setdefault(pk, {'L': pk[0], 'W': pk[1], 'qty': 0, 'names': {}})
             p['qty'] += 1
             p['names'][it['comp_name']] = p['names'].get(it['comp_name'], 0) + 1
             area += it['L'] * it['W']
             rects.append({'id': idx, 'label': it['comp_name'], 'w': it['L'], 'h': it['W']})
         rows = sorted(parts.values(), key=lambda p: (-p['L'], -p['W']))
 
-        result = nesting.pack(rects, params['sheet_l'], params['sheet_w'],
-                              params['kerf'], params['trim'], params['rotate'])
-        num_sheets = len(result['sheets'])
-        usable_area = result['usable_w'] * result['usable_h']
-        placed_area = sum(nesting.sheet_used_area(sh) for sh in result['sheets'])
-        yld = (placed_area / (num_sheets * usable_area) * 100.0) if (num_sheets and usable_area) else 0.0
-
-        sections.append({
-            'thickness': t,
-            'rows': rows,
-            'pieces': len(items),
-            'area_m2': area / 1.0e6,
-            'sheets': result['sheets'],
-            'num_sheets': num_sheets,
-            'yield': yld,
-            'unplaced': result['unplaced'],
-            'usable_w': result['usable_w'],
-            'usable_h': result['usable_h'],
-        })
+        mat = sheets_store.find_material(materials, material, t)
+        sheet = _pick_sheet(mat, key, choices) if mat else None
+        section = {
+            'material': material, 'thickness': t, 'rows': rows, 'pieces': len(items),
+            'area_m2': area / 1.0e6, 'matched': sheet is not None, 'sheet': sheet,
+            'color': (mat.get('color') if mat else None) or UNMATCHED_COLOR,
+            'sheets': [], 'num_sheets': 0, 'yield': 0.0, 'unplaced': [],
+            'usable_w': 0.0, 'usable_h': 0.0, 'cost': 0.0,
+        }
+        if sheet:
+            gap = max(0.0, float(sheet.get('separation') or 0.0))
+            trim = max(0.0, float(sheet.get('trim') or 0.0))
+            allow_rot = sheets_store.rotation_allows_rotation(sheet.get('rotation'))
+            result = nesting.pack(rects, sheet['length'], sheet['width'], gap, trim, allow_rot)
+            num_sheets = len(result['sheets'])
+            usable_area = result['usable_w'] * result['usable_h']
+            placed_area = sum(nesting.sheet_used_area(sh) for sh in result['sheets'])
+            yld = (placed_area / (num_sheets * usable_area) * 100.0) if (num_sheets and usable_area) else 0.0
+            section.update({
+                'sheets': result['sheets'], 'num_sheets': num_sheets, 'yield': yld,
+                'unplaced': result['unplaced'], 'usable_w': result['usable_w'],
+                'usable_h': result['usable_h'],
+                'cost': num_sheets * float(sheet.get('cost', 0.0) or 0.0),
+                'allow_rot': allow_rot, 'gap': gap, 'trim': trim,
+            })
+        sections.append(section)
     return sections
 
 
@@ -213,25 +327,36 @@ def _safe_filename(name):
     return base[:60] or 'woodcraft_cutlist'
 
 
+def _swatch(color):
+    return (f"<span style='display:inline-block;width:11px;height:11px;border-radius:3px;"
+            f"background:{_esc(color)};border:1px solid #0003;vertical-align:middle;"
+            f"margin-right:6px'></span>")
+
+
 # ---------------------------------------------------------------------------
 # Report
 # ---------------------------------------------------------------------------
-def _build_html(sections, instances, params, title):
+def _build_html(sections, instances, title, materials):
     now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
     total_pieces = len(instances)
-    total_sheets = sum(s['num_sheets'] for s in sections)
-    total_unplaced = sum(len(s['unplaced']) for s in sections)
+    matched = [s for s in sections if s['matched']]
+    total_sheets = sum(s['num_sheets'] for s in matched)
+    total_unplaced = sum(len(s['unplaced']) for s in matched)
+    total_unmatched = sum(s['pieces'] for s in sections if not s['matched'])
 
-    sheet_area_mm2 = params['sheet_l'] * params['sheet_w']
-    board_m2 = total_sheets * sheet_area_mm2 / 1.0e6
-    placed_m2 = sum(nesting.sheet_used_area(sh) for s in sections for sh in s['sheets']) / 1.0e6
+    board_m2 = sum(s['num_sheets'] * s['sheet']['length'] * s['sheet']['width']
+                   for s in matched) / 1.0e6
+    placed_m2 = sum(nesting.sheet_used_area(sh) for s in matched for sh in s['sheets']) / 1.0e6
     overall_yield = (placed_m2 / board_m2 * 100.0) if board_m2 else 0.0
     waste_m2 = max(0.0, board_m2 - placed_m2)
+    total_cost = sum(s['cost'] for s in matched)
+    has_cost = any((s['sheet'].get('cost') or 0) for s in matched)
 
     css = """<style>
       body{font-family:'Segoe UI',Arial,sans-serif;margin:24px;color:#222;}
       h1{font-size:20px;margin:0 0 2px;} .sub{color:#777;font-size:12px;margin-bottom:14px;}
       .params{background:#f5f5f5;border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:14px;break-inside:avoid;}
+      .legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin:8px 0 16px;font-size:12px;}
       .summary{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px;break-inside:avoid;}
       .summary div{background:#fff;border:1px solid #e3dcc4;border-radius:8px;padding:8px 14px;min-width:82px;text-align:center;}
       .summary span{display:block;font-size:11px;color:#888;} .summary b{font-size:17px;}
@@ -245,7 +370,7 @@ def _build_html(sections, instances, params, title):
       .sheet{font-size:11px;color:#555;break-inside:avoid;} .sheet .cap{margin-bottom:3px;font-weight:600;color:#333;}
       .warn{color:#b00;font-size:12px;margin:6px 0;}
       .labels{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:8px;}
-      .label{border:1px solid #ccc;border-radius:6px;padding:8px;font-size:12px;break-inside:avoid;}
+      .label{border:1px solid #ccc;border-radius:6px;padding:8px;font-size:12px;break-inside:avoid;border-left-width:6px;}
       .label .ln{font-weight:600;} .label .ld{color:#333;} .label .lt{color:#888;font-size:11px;}
       button{background:#E5C05B;border:none;border-radius:6px;padding:8px 14px;font-size:13px;cursor:pointer;margin-top:8px;}
       .pagebreak{page-break-before:always;}
@@ -264,17 +389,40 @@ def _build_html(sections, instances, params, title):
         f"<div><span>Used</span><b>{placed_m2:.2f} m&sup2;</b></div>"
         f"<div><span>Yield</span><b>{overall_yield:.0f}%</b></div>"
         f"<div><span>Waste</span><b>{waste_m2:.2f} m&sup2;</b></div>"
-        "</div>")
+        + (f"<div><span>Stock cost</span><b>{total_cost:.2f}</b></div>" if has_cost else '')
+        + (f"<div><span>Unmatched</span><b style='color:#b00'>{total_unmatched}</b></div>"
+           if total_unmatched else '')
+        + "</div>")
+
+    # Legend: one swatch per material/thickness group (matched first).
+    legend_html = "<div class='legend'>" + ''.join(
+        f"<span>{_swatch(s['color'])}{_esc(s['material'])} {s['thickness']:.0f}mm</span>"
+        for s in sections) + "</div>"
 
     display_w = 380.0
-    scale = (display_w / params['sheet_l']) if params['sheet_l'] > 0 else 0.1
     blocks = []
     for s in sections:
         blocks.append("<div class='section'>")
-        blocks.append(
-            f"<h2>{s['thickness']:.1f} mm &mdash; {s['pieces']} pcs &nbsp;|&nbsp; "
-            f"{s['num_sheets']} sheet(s) &nbsp;|&nbsp; {s['yield']:.0f}% yield "
-            f"&nbsp;|&nbsp; {s['area_m2']:.2f} m&sup2;</h2>")
+        if s['matched']:
+            sheet = s['sheet']
+            cost_txt = f" &nbsp;|&nbsp; cost {s['cost']:.2f}" if has_cost else ''
+            blocks.append(
+                f"<h2>{_swatch(s['color'])}{_esc(s['material'])} &mdash; {s['thickness']:.1f} mm "
+                f"&nbsp;|&nbsp; {s['pieces']} pcs &nbsp;|&nbsp; {s['num_sheets']} sheet(s) "
+                f"&nbsp;|&nbsp; {s['yield']:.0f}% yield &nbsp;|&nbsp; {s['area_m2']:.2f} m&sup2;{cost_txt}</h2>")
+            blocks.append(
+                f"<div class='sub'>Stock: {_esc(sheet.get('name', 'Sheet'))} "
+                f"{sheet['length']:.0f} &times; {sheet['width']:.0f} mm &nbsp;|&nbsp; "
+                f"gap {s['gap']:.0f} mm &nbsp;|&nbsp; trim {s['trim']:.0f} mm &nbsp;|&nbsp; "
+                f"rotation {'on' if s['allow_rot'] else 'off (grain)'}</div>")
+        else:
+            blocks.append(
+                f"<h2 style='border-color:#b00'>{_swatch(s['color'])}{_esc(s['material'])} &mdash; "
+                f"{s['thickness']:.1f} mm &nbsp;|&nbsp; {s['pieces']} pcs &nbsp;|&nbsp; "
+                f"<span style='color:#b00'>no matching stock material</span></h2>")
+            blocks.append(f"<div class='warn'>&#9888; No stock material for "
+                          f"<b>{_esc(s['material'])}</b> ({s['thickness']:.0f} mm). Add it in the "
+                          f"Sheets palette (match the material name + thickness), then re-run.</div>")
 
         blocks.append("<table><thead><tr><th>Qty</th><th>Length (mm)</th><th>Width (mm)</th>"
                       "<th>Area (m&sup2;)</th><th class='l'>Parts</th></tr></thead><tbody>")
@@ -292,35 +440,46 @@ def _build_html(sections, instances, params, title):
                           f"than the sheet: {names}</div>")
         blocks.append("</div>")  # /section — keep heading + table together
 
-        blocks.append("<div class='sheets'>")
-        for i, sheet in enumerate(s['sheets']):
-            used = nesting.sheet_used_area(sheet)
-            sy = (used / (s['usable_w'] * s['usable_h']) * 100.0) if (s['usable_w'] and s['usable_h']) else 0.0
-            svg = nesting.sheet_svg(sheet['placements'], params['sheet_l'], params['sheet_w'],
-                                    params['trim'], scale)
-            blocks.append(f"<div class='sheet'><div class='cap'>Sheet {i + 1} &mdash; "
-                          f"{len(sheet['placements'])} parts &nbsp;|&nbsp; {sy:.0f}% used</div>{svg}</div>")
-        blocks.append("</div>")
+        if s['matched']:
+            sheet = s['sheet']
+            scale = (display_w / sheet['length']) if sheet['length'] > 0 else 0.1
+            blocks.append("<div class='sheets'>")
+            for i, layout in enumerate(s['sheets']):
+                used = nesting.sheet_used_area(layout)
+                sy = (used / (s['usable_w'] * s['usable_h']) * 100.0) if (s['usable_w'] and s['usable_h']) else 0.0
+                svg = nesting.sheet_svg(layout['placements'], sheet['length'], sheet['width'],
+                                        s['trim'], scale, fill=s['color'])
+                blocks.append(f"<div class='sheet'><div class='cap'>Sheet {i + 1} &mdash; "
+                              f"{len(layout['placements'])} parts &nbsp;|&nbsp; {sy:.0f}% used</div>{svg}</div>")
+            blocks.append("</div>")
 
+    # Labels (colour bar per material on the left edge).
+    color_by_key = {(s['material'].lower(), s['thickness']): s['color'] for s in sections}
     label_cards = []
     for it in instances:
         L, W = max(it['L'], it['W']), min(it['L'], it['W'])
+        c = color_by_key.get(((it.get('material') or 'Unassigned').strip().lower() or 'unassigned',
+                              round(it['T'], 1)), UNMATCHED_COLOR)
         label_cards.append(
-            f"<div class='label'><div class='ln'>{_esc(it['comp_name'])}</div>"
+            f"<div class='label' style='border-left-color:{_esc(c)}'>"
+            f"<div class='ln'>{_esc(it['comp_name'])}</div>"
             f"<div class='ld'>{L:.0f} &times; {W:.0f} mm</div>"
             f"<div class='lt'>{it['T']:.1f} mm thick</div></div>")
     labels_html = (f"<div class='pagebreak'></div><h2>Labels &mdash; {total_pieces} pieces</h2>"
                    f"<div class='labels'>{''.join(label_cards)}</div>")
 
-    p = params
     params_html = (
-        f"Stock sheet: <b>{p['sheet_l']:.0f} &times; {p['sheet_w']:.0f} mm</b> &nbsp;|&nbsp; "
-        f"Kerf: <b>{p['kerf']:.1f} mm</b> &nbsp;|&nbsp; "
-        f"Edge trim: <b>{p['trim']:.0f} mm</b> &nbsp;|&nbsp; "
-        f"Rotation: <b>{'allowed' if p['rotate'] else 'off (grain)'}</b>")
+        f"Stock from the <b>Sheets</b> library (<b>{len(materials)}</b> material(s)). "
+        f"Matched by material&nbsp;+&nbsp;thickness; gap / trim / rotation come from each "
+        f"chosen sheet.")
 
-    warn = (f' &nbsp;|&nbsp; <span style="color:#b00">&#9888; {total_unplaced} oversized</span>'
-            if total_unplaced else '')
+    warn_bits = []
+    if total_unmatched:
+        warn_bits.append(f'{total_unmatched} unmatched')
+    if total_unplaced:
+        warn_bits.append(f'{total_unplaced} oversized')
+    warn = (f' &nbsp;|&nbsp; <span style="color:#b00">&#9888; {", ".join(warn_bits)}</span>'
+            if warn_bits else '')
 
     return (
         '<!doctype html><html><head><meta charset="utf-8">'
@@ -328,12 +487,13 @@ def _build_html(sections, instances, params, title):
         f'<h1>WoodCraft Cut List &mdash; {_esc(title)}</h1>'
         f'<div class="sub">Generated {now}{warn}</div>'
         f'<div class="params">{params_html}</div>'
-        + summary_html + ''.join(blocks) + labels_html +
+        + legend_html + summary_html + ''.join(blocks) + labels_html +
         '<button onclick="window.print()">Print / Save PDF</button>'
         '</body></html>')
 
 
 def command_destroy(args: adsk.core.CommandEventArgs):
     futil.log(f'{CMD_NAME} Command Destroy Event')
-    global local_handlers
+    global local_handlers, _pickers
     local_handlers = []
+    _pickers = []
