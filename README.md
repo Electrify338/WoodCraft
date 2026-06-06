@@ -176,4 +176,9 @@ append it to the `commands` list, and drop icons in its `resources/`. See
 
 ---
 
+## License
+
+**MIT** — see [`LICENSE`](LICENSE). You're free to use, modify, distribute and
+even sell this, including in closed-source work; just keep the copyright notice.
+
 **Author:** Abdelrahman Youssry
