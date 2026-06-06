@@ -126,10 +126,11 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
     inputs.addIntegerSpinnerCommandInput(QTY_ID, 'Quantity (assemblies)', 1, 1000, 1, 1)
 
     scope = inputs.addSelectionInput(
-        SCOPE_ID, 'Assembly (optional)',
-        'Limit the cut list to a selected assembly; leave empty for the whole design')
+        SCOPE_ID, 'Assemblies (optional)',
+        'Limit the cut list to the selected assemblies (pick one or more, e.g. a few '
+        'cabinets from a kitchen); leave empty for the whole design')
     scope.addSelectionFilter('Occurrences')
-    scope.setSelectionLimits(0, 1)
+    scope.setSelectionLimits(0, 0)   # 0 max = unlimited
 
     info = inputs.addTextBoxCommandInput(INFO_ID, '', '', 4, True)
     try:
@@ -210,12 +211,12 @@ def command_execute(args: adsk.core.CommandEventArgs):
         return
 
     scope = inputs.itemById(SCOPE_ID)
-    root = None
-    if scope.selectionCount == 1:
+    roots = []
+    for i in range(scope.selectionCount):
         try:
-            root = scope.selection(0).entity.component
+            roots.append(scope.selection(i).entity.component)
         except Exception:
-            root = None
+            pass
 
     qty = max(1, int(inputs.itemById(QTY_ID).value))
     report_name = (inputs.itemById(NAME_ID).value or '').strip()
@@ -225,7 +226,15 @@ def command_execute(args: adsk.core.CommandEventArgs):
         except Exception:
             report_name = 'WoodCraft'
 
-    instances = panels.collect_panel_instances(design, root=root)
+    if roots:
+        # Union of the selected assemblies. Each selected occurrence contributes its
+        # own subtree once, so selecting two placements of the same cabinet counts
+        # its panels twice (correct).
+        instances = []
+        for comp in roots:
+            instances += panels.collect_panel_instances(design, root=comp)
+    else:
+        instances = panels.collect_panel_instances(design)
     if not instances:
         ui.messageBox('No panels found.\n\nTag panels with Convert to Panel, or build '
                       'them with Carcass Maker / Shelf Creator, then try again.')
