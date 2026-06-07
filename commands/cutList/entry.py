@@ -94,6 +94,16 @@ def _sheet_label(sheet):
     return f"{sheet.get('name', 'Sheet')} ({sheet['length']:.0f}×{sheet['width']:.0f})"
 
 
+def _panel_label(it):
+    """Panel name qualified by its parent assembly (cabinet), e.g.
+    'Base Cabinet / Left Panel', so identical panel names across cabinets stay
+    distinct in the cut list, labels and nest diagrams. Falls back to the bare
+    panel name for panels that sit at the top level (no parent assembly)."""
+    parent = (it.get('parent') or '').strip()
+    name = it.get('comp_name') or ''
+    return f'{parent} / {name}' if parent else name
+
+
 def _pick_sheet(material, key, choices):
     """The chosen sheet for a material: the dropdown selection if any, else its
     first/primary sheet. None if the material has no sheets."""
@@ -232,11 +242,11 @@ def command_execute(args: adsk.core.CommandEventArgs):
         # its panels twice (correct).
         instances = []
         for comp in roots:
-            instances += panels.collect_panel_instances(design, root=comp)
+            instances += panels.collect_panel_instances(design, root=comp, root_name=comp.name)
     else:
         instances = panels.collect_panel_instances(design)
     if not instances:
-        ui.messageBox('No panels found.\n\nTag panels with Convert to Panel, or build '
+        ui.messageBox('No panels found.\n\nClassify panels with Set Type, or build '
                       'them with Carcass Maker / Shelf Creator, then try again.')
         return
     instances = instances * qty   # global assembly quantity multiplier
@@ -293,9 +303,12 @@ def _build_sections(instances, materials, choices):
             pk = (round(L, 1), round(W, 1))
             p = parts.setdefault(pk, {'L': pk[0], 'W': pk[1], 'qty': 0, 'names': {}})
             p['qty'] += 1
-            p['names'][it['comp_name']] = p['names'].get(it['comp_name'], 0) + 1
+            label = _panel_label(it)
+            p['names'][label] = p['names'].get(label, 0) + 1
             area += it['L'] * it['W']
-            rects.append({'id': idx, 'label': it['comp_name'], 'w': it['L'], 'h': it['W']})
+            rects.append({'id': idx, 'label': it['comp_name'],
+                          'parent': (it.get('parent') or '').strip(),
+                          'w': it['L'], 'h': it['W']})
         rows = sorted(parts.values(), key=lambda p: (-p['L'], -p['W']))
 
         mat = sheets_store.find_material(materials, material, t)
@@ -380,6 +393,7 @@ def _build_html(sections, instances, title, materials):
       .warn{color:#b00;font-size:12px;margin:6px 0;}
       .labels{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:8px;}
       .label{border:1px solid #ccc;border-radius:6px;padding:8px;font-size:12px;break-inside:avoid;border-left-width:6px;}
+      .label .lc{color:#888;font-size:11px;text-transform:uppercase;letter-spacing:.3px;margin-bottom:1px;}
       .label .ln{font-weight:600;} .label .ld{color:#333;} .label .lt{color:#888;font-size:11px;}
       button{background:#E5C05B;border:none;border-radius:6px;padding:8px 14px;font-size:13px;cursor:pointer;margin-top:8px;}
       .pagebreak{page-break-before:always;}
@@ -469,8 +483,11 @@ def _build_html(sections, instances, title, materials):
         L, W = max(it['L'], it['W']), min(it['L'], it['W'])
         c = color_by_key.get(((it.get('material') or 'Unassigned').strip().lower() or 'unassigned',
                               round(it['T'], 1)), UNMATCHED_COLOR)
+        parent = (it.get('parent') or '').strip()
+        parent_html = f"<div class='lc'>{_esc(parent)}</div>" if parent else ''
         label_cards.append(
             f"<div class='label' style='border-left-color:{_esc(c)}'>"
+            f"{parent_html}"
             f"<div class='ln'>{_esc(it['comp_name'])}</div>"
             f"<div class='ld'>{L:.0f} &times; {W:.0f} mm</div>"
             f"<div class='lt'>{it['T']:.1f} mm thick</div></div>")

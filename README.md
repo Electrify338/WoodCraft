@@ -23,7 +23,7 @@ split into panels that read as a workflow (design → hardware → output):
 | **Trim** | Combine‑cuts panels so they fit against each other, with an optional uniform **gap** (clearance/reveal; 0 = flush). |
 | **Edit Thickness** | Re‑thickness existing panels by editing the extrude extent **in place** (preserves direction + offset). Prefills the current thickness. |
 | **Shelf Creator** | Builds a parametric shelf on a chosen plane bounded by four faces, each with its own offset (positive, negative or uneven), kept associative to the walls. |
-| **Convert to Panel** | Tags hand‑modelled or imported components/bodies as WoodCraft panels so the output commands can find them. |
+| **Set Type** | Classifies selected components/bodies as **panels** or **purchased hardware** (with a unit cost) so the cut list, nesting and BOM can sort them. Use it for hand‑modelled or imported parts. |
 
 ### Hardware (machining)
 | Command | What it does |
@@ -40,17 +40,20 @@ split into panels that read as a workflow (design → hardware → output):
 ### Dev
 | Command | What it does |
 |---|---|
-| **Inspect Panels** | Lists every component tagged as a WoodCraft panel with its cut size — a debugging aid. Self‑contained and safe to delete before release. |
+| **Inspect Panels** | Lists every classified WoodCraft component (panel/hardware) with its cut size — a debugging aid. Self‑contained and safe to delete before release. |
 
 ---
 
 ## How panels & materials work
 
-- **Panel tagging.** Every panel component carries an invisible custom attribute
-  (`WoodCraft / panel / true`). Carcass Maker and Shelf Creator tag automatically;
-  Convert to Panel tags existing geometry. Output commands collect panels by this
-  tag (with a flat‑sheet geometry fallback), so they work across referenced
-  cabinets in a larger assembly.
+- **Component classification.** Every WoodCraft component carries invisible custom
+  attributes under one group (`WoodCraft`), the key one being `category`
+  (`panel` or `hardware`). Carcass Maker and Shelf Creator auto‑classify what they
+  build as panels; **Set Type** classifies existing geometry (and prices hardware).
+  Output commands collect strictly by this category — no geometry guessing — so
+  panels and purchased items stay cleanly separated, even across referenced cabinets
+  in a larger assembly. The scheme is an extensible key/value store
+  (`commands/wc_attrs.py`); new commands add keys without migrations.
 - **Material = Fusion's native material.** Cut List reads each panel's Fusion
   physical material name and matches it (plus thickness) to the Sheets library.
   Assign real materials to your parts in Fusion, define matching stock in the

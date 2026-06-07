@@ -10,6 +10,7 @@ command has removed its button, so no single command "owns" the tab.
 import adsk.core
 
 from .. import config
+from . import wc_attrs
 
 app = adsk.core.Application.get()
 ui = app.userInterface
@@ -54,12 +55,10 @@ def remove_command(panel_id: str, cmd_id: str):
 
 
 def tag_as_panel(component) -> bool:
-    """Stamp a component as a WoodCraft panel (idempotent) so the cut list and
+    """Classify a component as a WoodCraft panel (idempotent) so the cut list and
     other output commands can find it regardless of how it was modelled. Returns
-    False if the tag couldn't be written (e.g. a referenced/read-only component)."""
-    try:
-        component.attributes.add(
-            config.PANEL_ATTR_GROUP, config.PANEL_ATTR_NAME, config.PANEL_ATTR_VALUE)
-        return True
-    except Exception:
-        return False
+    False if it couldn't be written (e.g. a referenced/read-only component).
+
+    Thin wrapper over wc_attrs.set_category so Carcass Maker / Shelf Creator keep a
+    one-call auto-classify; richer classification lives in the Set Type command."""
+    return wc_attrs.set_category(component, config.WC_CAT_PANEL)

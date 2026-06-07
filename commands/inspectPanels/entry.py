@@ -1,10 +1,10 @@
-"""Inspect Panels (DEV) — list every component tagged as a WoodCraft panel.
+"""Inspect Panels (DEV) — list every classified WoodCraft component.
 
-Temporary debugging aid: opens a dialog listing the count and each tagged panel's
-name + cut size (L x W x T, mm), so you can verify tagging while the cut list is
-being built. It also previews exactly what the cut list will collect: it walks
-root.allOccurrences and reads each component's panel attribute (works across
-referenced cabinets), and cross-checks against design.findAttributes.
+Temporary debugging aid: opens a dialog listing the count and each classified
+component's category + name + cut size (L x W x T, mm), so you can verify
+classification while the reports are being built. It previews exactly what the
+reports collect — the shared category-driven collector (works across referenced
+cabinets) — and cross-checks against design.findAttributes.
 
 Safe to remove later: delete this folder and its two lines in commands/__init__.py.
 It lives in its own Dev panel (segment) at the end of the WoodCraft tab.
@@ -25,7 +25,7 @@ ui = app.userInterface
 
 CMD_ID = f'{config.COMPANY_NAME}_inspectPanels'
 CMD_NAME = 'Inspect Panels (dev)'
-CMD_Description = 'DEV: list all components tagged as WoodCraft panels, with cut sizes.'
+CMD_Description = 'DEV: list all classified WoodCraft components (panel/hardware), with cut sizes.'
 IS_PROMOTED = True
 
 PANEL_ID = config.DEV_PANEL_ID
@@ -64,9 +64,10 @@ def _dims_mm(component):
 
 
 def _collect():
-    """(findAttributes_count, [(name, dims_mm, qty), ...]) for tagged panels.
+    """(findAttributes_count, [(name, category, dims_mm, qty), ...]) for every
+    classified component.
 
-    Uses the shared collector so this dev view matches exactly what Cut List sees.
+    Uses the shared collector so this dev view matches exactly what the reports see.
     """
     design = adsk.fusion.Design.cast(app.activeProduct)
     if not design:
@@ -74,17 +75,17 @@ def _collect():
 
     agg = {}
     order = []
-    for it in panels.collect_panel_instances(design):
-        key = it['comp_name']
+    for it in panels.collect_instances(design):
+        key = (it['comp_name'], it['category'])
         if key not in agg:
-            agg[key] = {'name': key, 'dims': (it['L'], it['W'], it['T']), 'qty': 0}
+            agg[key] = {'name': it['comp_name'], 'category': it['category'],
+                        'dims': (it['L'], it['W'], it['T']), 'qty': 0}
             order.append(key)
         agg[key]['qty'] += 1
-    rows = [(agg[k]['name'], agg[k]['dims'], agg[k]['qty']) for k in order]
+    rows = [(agg[k]['name'], agg[k]['category'], agg[k]['dims'], agg[k]['qty']) for k in order]
 
     try:
-        fa_count = design.findAttributes(
-            config.PANEL_ATTR_GROUP, config.PANEL_ATTR_NAME).count
+        fa_count = design.findAttributes(config.WC_GROUP, config.WC_CATEGORY).count
     except Exception:
         fa_count = -1
     return fa_count, rows
@@ -103,14 +104,15 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
     if fa_count is None:
         html = 'No active design.'
     elif not rows:
-        html = f'No tagged panels found. (findAttributes count: {fa_count})'
+        html = f'No classified components found. (findAttributes count: {fa_count})'
     else:
-        pieces = sum(q for _, _, q in rows)
-        lines = [f'<b>{pieces}</b> panel(s) in <b>{len(rows)}</b> unique size(s) '
+        pieces = sum(q for _, _, _, q in rows)
+        lines = [f'<b>{pieces}</b> classified item(s) in <b>{len(rows)}</b> group(s) '
                  f'&nbsp;<i>(findAttributes: {fa_count})</i><br>']
-        for nm, dims, qty in rows:
+        for nm, cat, dims, qty in rows:
             q = f'{qty}&times; ' if qty > 1 else ''
-            lines.append(f'{q}{nm}: &nbsp; {dims[0]:.1f} &times; {dims[1]:.1f} &times; {dims[2]:.1f} mm')
+            lines.append(f'<b>[{cat}]</b> {q}{nm}: &nbsp; '
+                         f'{dims[0]:.1f} &times; {dims[1]:.1f} &times; {dims[2]:.1f} mm')
         html = '<br>'.join(lines)
 
     box = inputs.addTextBoxCommandInput(RESULT_ID, '', html, 18, True)

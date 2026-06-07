@@ -77,7 +77,7 @@ def _place_in_sheet(sheet, rect, kerf, allow_rotation, split_long, score):
     fx, fy, fw, fh = sheet['free'].pop(fi)
     sheet['placements'].append({
         'x': fx, 'y': fy, 'w': w, 'h': h, 'rotated': rotated,
-        'id': rect['id'], 'label': rect['label'],
+        'id': rect['id'], 'label': rect['label'], 'parent': rect.get('parent', ''),
     })
 
     nw, nh = w + kerf, h + kerf
@@ -126,7 +126,8 @@ def _quality(sheets):
 
 
 def pack(rects, sheet_w, sheet_h, kerf=0.0, trim=0.0, allow_rotation=True):
-    """Pack rects (each {'id','label','w','h'}) onto sheets of sheet_w x sheet_h.
+    """Pack rects (each {'id','label','w','h'}, optional 'parent') onto sheets of
+    sheet_w x sheet_h.
 
     Tries several orderings/split-rules/scores and returns the best:
     {'sheets': [{'placements':[...], 'free':[...]}], 'unplaced': [...],
@@ -168,6 +169,18 @@ def sheet_used_area(sheet):
 
 def _esc(s):
     return str(s).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+
+def _fit_text(s, max_px, font_size, char_w=0.55):
+    """Trim `s` with an ellipsis so it fits in `max_px` at `font_size` (rough Arial
+    average char width). Keeps part labels from spilling out of small rectangles."""
+    s = str(s)
+    max_chars = max(1, int(max_px / (font_size * char_w)))
+    if len(s) <= max_chars:
+        return s
+    if max_chars <= 1:
+        return s[:1]
+    return s[:max_chars - 1].rstrip() + '…'
 
 
 def _darken(hex_color, factor=0.65):
@@ -222,11 +235,22 @@ def sheet_svg(placements, sheet_len, sheet_wid, trim, scale, fill=None, stroke=N
         out.append(f'<rect x="{px:.1f}" y="{py:.1f}" width="{pw:.1f}" height="{ph:.1f}" '
                    f'fill="{part_fill}" stroke="{part_stroke}" stroke-width="1"/>')
         if min(pw, ph) > 26:
-            cx, cy = px + pw / 2, py + ph / 2
-            out.append(f'<text x="{cx:.0f}" y="{cy - 2:.0f}" font-size="11" font-family="Arial" '
-                       f'text-anchor="middle" fill="#333">{_esc(p["label"])}</text>')
-            out.append(f'<text x="{cx:.0f}" y="{cy + 11:.0f}" font-size="10" font-family="Arial" '
-                       f'text-anchor="middle" fill="#777">{p["w"]:.0f}&#215;{p["h"]:.0f}</text>')
+            cx = px + pw / 2
+            # Stack: parent assembly (if room) → part name → dimensions, each
+            # truncated to the part width and the block vertically centred.
+            lines = []
+            parent = p.get('parent')
+            if parent and ph > 40:
+                lines.append((parent, 10, '#888'))
+            lines.append((p['label'], 11, '#333'))
+            lines.append((f"{p['w']:.0f}×{p['h']:.0f}", 10, '#777'))
+            line_h = 12.0
+            ty = py + ph / 2 - line_h * len(lines) / 2 + 10
+            for text, fs, fill in lines:
+                out.append(f'<text x="{cx:.0f}" y="{ty:.0f}" font-size="{fs}" '
+                           f'font-family="Arial" text-anchor="middle" fill="{fill}">'
+                           f'{_esc(_fit_text(text, pw, fs))}</text>')
+                ty += line_h
 
     # Dimension labels: length along the top, width down the left side.
     out.append(f'<text x="{ox + sw / 2:.0f}" y="{oy - 5:.0f}" font-size="11" font-family="Arial" '

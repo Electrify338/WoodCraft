@@ -32,7 +32,7 @@ TAB_NAME = 'WoodCraft'
 # across panels so each step reads as a distinct group (the gap between panels
 # acts as the separator):
 #   - Cabinet Builder : modelling commands (Carcass Maker, Trim, Edit Thickness,
-#                       Shelf Creator, Convert to Panel).
+#                       Shelf Creator, Set Type).
 #   - Hardware        : Insert Hardware + Sculpt (place parts, cut their holes).
 #   - Output / Dev    : reports and debug tools (see below).
 CABINET_PANEL_ID = f'{COMPANY_NAME}_cabinet_panel'
@@ -62,13 +62,28 @@ DEV_PANEL_NAME = 'Dev'
 HARDWARE_PROJECT_NAME = 'WoodCraft Hardware'
 
 # ---------------------------------------------------------------------------
-# Panel tagging
+# Component classification (attribute schema)
 # ---------------------------------------------------------------------------
-# WoodCraft stamps every panel component with this invisible custom attribute so
-# later output commands (cut list, BOM, labels) can reliably collect "the panels"
-# regardless of how the model was built — including across referenced cabinets.
-# Carcass Maker and Shelf Creator tag automatically; the Convert to Panel command
-# tags hand-modelled or imported components. The tag is saved inside the .f3d.
-PANEL_ATTR_GROUP = 'WoodCraft'
-PANEL_ATTR_NAME = 'panel'
-PANEL_ATTR_VALUE = 'true'
+# Every WoodCraft-relevant component is stamped with invisible custom attributes,
+# all under ONE group (WC_GROUP) as plain name/value pairs. Output commands
+# (Cut List, BOM, labels) collect and split components by these. The scheme is a
+# deliberately flat, extensible key/value store: a new command adds a new key
+# constant here and reads/writes it through commands/wc_attrs.py — no schema churn,
+# no migration. Attributes live on the component, are saved inside the .f3d, and
+# survive across referenced cabinets and configuration changes.
+WC_GROUP = 'WoodCraft'
+
+# Category — what KIND of item the component is. Decides which BOM section it lands
+# in and whether the cut list / nesting includes it. Carcass Maker and Shelf
+# Creator stamp 'panel' automatically; Set Type classifies anything by hand.
+WC_CATEGORY = 'category'
+WC_CAT_PANEL = 'panel'          # sheet-good panel → cut list, nesting, BOM panels
+WC_CAT_HARDWARE = 'hardware'    # purchased item   → BOM purchased-items only
+WC_CATEGORIES = (WC_CAT_PANEL, WC_CAT_HARDWARE)
+
+# Hardware unit cost (string-encoded float; currency is the user's own). Read back
+# by the BOM. Only meaningful on hardware components.
+WC_COST = 'cost'
+
+# Future keys plug in here with no core change, e.g.:
+#   WC_FINISH = 'finish'; WC_EDGEBAND = 'edgeband'; WC_PART_NO = 'partNumber'
