@@ -11,6 +11,7 @@ from .insertHardware import entry as insertHardware
 from .sculpt import entry as sculpt
 from .sheets import entry as sheets
 from .cutList import entry as cutList
+from .bom import entry as bom
 from .inspectPanels import entry as inspectPanels  # DEV — remove later
 
 # Fusion automatically calls start() and stop() on each of these.
@@ -24,6 +25,7 @@ commands = [
     sculpt,
     sheets,
     cutList,
+    bom,
     inspectPanels,  # DEV — remove later
 ]
 

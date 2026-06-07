@@ -184,3 +184,110 @@ def collect_panel_instances(design, root=None, root_name=''):
     and other panel-centric callers."""
     return collect_instances(design, root=root, categories={config.WC_CAT_PANEL},
                              root_name=root_name)
+
+
+# ---------------------------------------------------------------------------
+# Shared grouping / labelling (used by Cut List and BOM)
+# ---------------------------------------------------------------------------
+def instance_label(it):
+    """Item name qualified by its parent assembly (cabinet), e.g.
+    'Base Cabinet / Left Panel', so identical names across cabinets stay distinct.
+    Falls back to the bare name for items at the top level (no parent)."""
+    parent = (it.get('parent') or '').strip()
+    name = it.get('comp_name') or ''
+    return f'{parent} / {name}' if parent else name
+
+
+def group_by_material_thickness(instances):
+    """Ordered list of {key, material, thickness, items} grouped by (material name,
+    thickness mm). 'Unassigned' stands in for items with no Fusion material. Sorted
+    by material name, then thickness descending."""
+    groups = {}
+    order = []
+    for it in instances:
+        material = (it.get('material') or '').strip() or 'Unassigned'
+        t = round(it['T'], 1)
+        key = (material.lower(), t)
+        if key not in groups:
+            groups[key] = {'key': key, 'material': material, 'thickness': t, 'items': []}
+            order.append(key)
+        groups[key]['items'].append(it)
+    order.sort(key=lambda k: (k[0], -k[1]))
+    return [groups[k] for k in order]
+
+
+# ---------------------------------------------------------------------------
+# Hierarchical BOM tree (used by the BOM palette / Excel export)
+# ---------------------------------------------------------------------------
+def _component_part_number(component):
+    """Native Fusion component part number (read/write property), or ''."""
+    try:
+        return component.partNumber or ''
+    except Exception:
+        return ''
+
+
+def _node_type(component, has_children):
+    """BOM type label from the WoodCraft category, falling back to the structure:
+    a component with children is an Assembly, an unclassified leaf is a Part."""
+    category = wc_attrs.get_category(component)
+    if category == config.WC_CAT_PANEL:
+        return 'Panel'
+    if category == config.WC_CAT_HARDWARE:
+        return 'Hardware'
+    return 'Assembly' if has_children else 'Part'
+
+
+def build_tree(design, root=None):
+    """Hierarchical bill of materials. Returns a list of top-level nodes; each node:
+    {name, type, material, part_number, L, W, T (mm), qty, children:[...]}.
+
+    Walks the occurrence tree (occurrences -> childOccurrences) so the structure
+    mirrors the browser, and groups identical sibling components into ONE node whose
+    `qty` is the count within that parent (standard indented-BOM quantities). Every
+    component is included — assemblies (cabinets), classified panels/hardware, and
+    unclassified parts alike — so the structure is complete regardless of tagging."""
+    if design is None:
+        return []
+    root = root or design.rootComponent
+
+    def node_for(component, qty):
+        children = build_level(component.occurrences)
+        dims = panel_dims_mm(component) or (0.0, 0.0, 0.0)
+        return {
+            'name': component.name,
+            'type': _node_type(component, bool(children)),
+            'material': panel_material(component),
+            'part_number': _component_part_number(component),
+            'L': dims[0], 'W': dims[1], 'T': dims[2],
+            'qty': qty,
+            'children': children,
+        }
+
+    def build_level(occ_collection):
+        # Aggregate identical sibling components into one node carrying a quantity,
+        # using component IDENTITY (==) — the way Fusion's own ExtractBOM sample
+        # does. entityToken is NOT a reliable grouping key (distinct components can
+        # collide on it, which dropped a sibling), so compare the components directly.
+        groups = []   # [{'comp': Component, 'qty': int}], in first-seen order
+        for i in range(occ_collection.count):
+            comp = occ_collection.item(i).component
+            for g in groups:
+                if g['comp'] == comp:
+                    g['qty'] += 1
+                    break
+            else:
+                groups.append({'comp': comp, 'qty': 1})
+        return [node_for(g['comp'], g['qty']) for g in groups]
+
+    return build_level(root.occurrences)
+
+
+def flatten_tree(nodes, level=0):
+    """Depth-first (node, level) pairs from build_tree() output — for tabular export
+    (Excel outline levels) and flat rendering."""
+    out = []
+    for n in nodes:
+        out.append((n, level))
+        out.extend(flatten_tree(n['children'], level + 1))
+    return out

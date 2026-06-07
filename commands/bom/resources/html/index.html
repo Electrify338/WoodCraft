@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WoodCraft — Bill of Materials</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="title">Bill of Materials</div>
+    <div class="actions">
+      <button id="btnExpand" title="Expand every assembly">Expand all</button>
+      <button id="btnCollapse" title="Collapse every assembly">Collapse all</button>
+      <button id="btnRefresh" title="Re-read the model">Refresh</button>
+      <button id="btnExport" class="primary" title="Export this BOM to an Excel (.xlsx) file">Export to Excel…</button>
+    </div>
+  </header>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <div class="bar">
+    <span id="summary" class="summary"></span>
+  </div>
+
+  <main>
+    <div class="grid head">
+      <span class="c-name">Component</span>
+      <span class="c-type">Type</span>
+      <span class="c-dims">Dimensions (mm)</span>
+      <span class="c-mat">Material</span>
+      <span class="c-qty">Qty</span>
+      <span class="c-part">Part #</span>
+    </div>
+    <section id="rows" class="rows" aria-label="Bill of materials"></section>
+  </main>
+
+  <footer>
+    <span id="pathNote" class="path"></span>
+  </footer>
+
+  <script src="main.js"></script>
+</body>
+</html>

@@ -28,7 +28,8 @@ Design workspace (FusionSolidEnvironment)
     │   └── Sculpt           (button)      id = WoodCraft_sculpt
     ├── Panel: "Output"                    id = WoodCraft_output_panel
     │   ├── Sheets           (palette)     id = WoodCraft_sheets
-    │   └── Cut List & Nest  (button)      id = WoodCraft_cutList
+    │   ├── Cut List & Nest  (button)      id = WoodCraft_cutList
+    │   └── BOM              (palette)     id = WoodCraft_bom
     └── Panel: "Dev"                       id = WoodCraft_dev_panel
         └── Inspect Panels   (button)      id = WoodCraft_inspectPanels   (removable)
 ```
@@ -70,6 +71,7 @@ filenames** — no code change needed.
 | Sculpt           | `sculpt/`                          | `WoodCraft_sculpt`     |
 | Sheets           | `sheets/`                          | `WoodCraft_sheets`     |
 | Cut List & Nest  | `cutList/`                         | `WoodCraft_cutList`    |
+| BOM              | `bom/`                             | `WoodCraft_bom`        |
 | Inspect Panels   | `inspectPanels/`                   | `WoodCraft_inspectPanels` |
 
 > The folder name is internal; the display name comes from `CMD_NAME` in each
@@ -145,6 +147,13 @@ UI files (vanilla HTML/CSS/JS, no build step) in `commands/sheets/resources/html
 
 `PALETTE_ID = WoodCraft_sheets_palette` (in `commands/sheets/entry.py`).
 
+> **BOM uses the same palette pattern.** `commands/bom/` is a second palette
+> (`PALETTE_ID = WoodCraft_bom_palette`), with its UI in
+> `commands/bom/resources/html/{index.html,style.css,main.js}` and the same
+> `incomingFromHTML` bridge — actions `ready` (serve the assembly tree) and `export`
+> (write a native `.xlsx` via `commands/xlsx_writer.py`). It shares the same dark
+> theme variables, so restyle both together.
+
 **Python ↔ JS bridge.** JS calls `adsk.fusionSendData(action, jsonString)`; the
 `incomingFromHTML` handler in `entry.py` replies via `args.returnData`:
 
@@ -191,5 +200,6 @@ design's real material names come from `panels.design_panel_materials(design)` a
 | `DEV_PANEL_ID` / NAME         | `WoodCraft_dev_panel` / Dev         |
 
 Command `CMD_ID`s (each in its own `entry.py`): `WoodCraft_carcassMaker`,
-`_trim`, `_editThickness`, `_shelf`, `_convertPanel`, `_insertHardware`, `_sculpt`,
-`_sheets` (+ palette `WoodCraft_sheets_palette`), `_cutList`, `_inspectPanels`.
+`_trim`, `_editThickness`, `_shelf`, `_convertPanel` (display "Set Type"),
+`_insertHardware`, `_sculpt`, `_sheets` (+ palette `WoodCraft_sheets_palette`),
+`_cutList`, `_bom` (+ palette `WoodCraft_bom_palette`), `_inspectPanels`.

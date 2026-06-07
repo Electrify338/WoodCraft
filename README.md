@@ -35,7 +35,8 @@ split into panels that read as a workflow (design → hardware → output):
 | Command | What it does |
 |---|---|
 | **Sheets** | A docked **HTML palette** that edits a global stock‑sheet **library** modelled on Fusion's Nesting *Process Material Library*: **Material → Sheets**. Each material has a name (matching the Fusion material), thickness, category and a display **colour**; each sheet has a size, cost and nesting params (rotation, item separation, edge trim). Save / **Export** / **Import** for sharing. |
-| **Cut List & Nest** | Collects all panels, groups them by **(material, thickness)**, matches each group to the Sheets library, and opens a **colour‑coded HTML report**: cut‑list table, per‑sheet **guillotine nesting** diagrams, sheet count, yield, optional cost, and a printable label sheet. Pick one or more assemblies (or the whole design), and choose which stock sheet to nest on when a material has several. |
+| **Cut List & Nest** | Collects all panels, groups them by **(material, thickness)**, matches each group to the Sheets library, and opens a **colour‑coded HTML report**: cut‑list table, per‑sheet **guillotine nesting** diagrams, sheet count, yield, optional cost, a **purchased‑items** list (your hardware + costs), and a printable label sheet. Pick one or more assemblies (or the whole design), and choose which stock sheet to nest on when a material has several. |
+| **BOM** | A **docked palette** showing the **assembly hierarchy** — root → components → sub‑components — one row per component with its **type, dimensions, material, quantity and part number** (the native Fusion `Component.partNumber`). Expand/collapse the tree and **Export to Excel** (a native `.xlsx`, written with the stdlib — no add‑on dependency). Shows the active **configuration** name. This is the structural bill; the cutting/nesting view lives in Cut List & Nest. |
 
 ### Dev
 | Command | What it does |

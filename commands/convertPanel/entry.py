@@ -164,23 +164,21 @@ def command_execute(args: adsk.core.CommandEventArgs):
     is_hardware = category == config.WC_CAT_HARDWARE
     cost = _parse_cost(inputs.itemById(COST_ID).value) or 0.0 if is_hardware else 0.0
 
-    seen_tokens = set()
-    done = 0
-    skipped = 0
+    # Snapshot ALL selected components BEFORE writing anything. Writing a component
+    # attribute mutates the document, which invalidates the SelectionCommandInput's
+    # live selection list mid-loop — Fusion then throws "invalid argument index" on
+    # the next sel.selection(i) (only the first selection got processed). So resolve
+    # every selection up front, then classify in a second pass. Classifying is
+    # idempotent, so we don't de-dup (that check could wrongly drop distinct panels).
+    comps = []
     for i in range(sel.selectionCount):
         comp = _component_of(sel.selection(i).entity)
-        if not comp:
-            continue
-        # De-dup: selecting several instances/bodies of one component classifies it once.
-        try:
-            token = comp.entityToken
-        except Exception:
-            token = None
-        if token is not None:
-            if token in seen_tokens:
-                continue
-            seen_tokens.add(token)
+        if comp:
+            comps.append(comp)
 
+    done = 0
+    skipped = 0
+    for comp in comps:
         if not wc_attrs.set_category(comp, category):
             skipped += 1
             futil.log(f'Set Type: could not classify "{getattr(comp, "name", "?")}" '

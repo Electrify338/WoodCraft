@@ -12,7 +12,6 @@ parts.
 """
 
 import os
-import re
 import pathlib
 import tempfile
 import webbrowser
@@ -25,6 +24,7 @@ from .. import ui_helpers
 from .. import panels
 from .. import nesting
 from .. import sheets_store
+from .. import report_utils
 from ...lib import fusionAddInUtils as futil
 from ... import config
 
@@ -73,35 +73,16 @@ def stop():
 # ---------------------------------------------------------------------------
 # Grouping + matching helpers (shared by the dialog and the report)
 # ---------------------------------------------------------------------------
-def _group_instances(instances):
-    """Ordered list of {key, material, thickness, items} grouped by (material name,
-    thickness). 'Unassigned' stands in for panels with no Fusion material."""
-    groups = {}
-    order = []
-    for it in instances:
-        material = (it.get('material') or '').strip() or 'Unassigned'
-        t = round(it['T'], 1)
-        key = (material.lower(), t)
-        if key not in groups:
-            groups[key] = {'key': key, 'material': material, 'thickness': t, 'items': []}
-            order.append(key)
-        groups[key]['items'].append(it)
-    order.sort(key=lambda k: (k[0], -k[1]))
-    return [groups[k] for k in order]
+# Shared with BOM (defined once in panels.py).
+_group_instances = panels.group_by_material_thickness
 
 
 def _sheet_label(sheet):
     return f"{sheet.get('name', 'Sheet')} ({sheet['length']:.0f}×{sheet['width']:.0f})"
 
 
-def _panel_label(it):
-    """Panel name qualified by its parent assembly (cabinet), e.g.
-    'Base Cabinet / Left Panel', so identical panel names across cabinets stay
-    distinct in the cut list, labels and nest diagrams. Falls back to the bare
-    panel name for panels that sit at the top level (no parent assembly)."""
-    parent = (it.get('parent') or '').strip()
-    name = it.get('comp_name') or ''
-    return f'{parent} / {name}' if parent else name
+# Shared with BOM (defined once in panels.py).
+_panel_label = panels.instance_label
 
 
 def _pick_sheet(material, key, choices):
@@ -251,12 +232,24 @@ def command_execute(args: adsk.core.CommandEventArgs):
         return
     instances = instances * qty   # global assembly quantity multiplier
 
+    # Purchased items (hardware) for the same scope — listed on the report so the
+    # shop has the full order alongside the cut sheets.
+    if roots:
+        hw_instances = []
+        for comp in roots:
+            hw_instances += panels.collect_instances(
+                design, root=comp, categories={config.WC_CAT_HARDWARE}, root_name=comp.name)
+    else:
+        hw_instances = panels.collect_instances(design, categories={config.WC_CAT_HARDWARE})
+    hw_instances = hw_instances * qty
+    hardware_rows = _hardware_rows(hw_instances)
+
     materials = sheets_store.load()['materials']
     choices = _read_choices(inputs)
     sections = _build_sections(instances, materials, choices)
 
     try:
-        html = _build_html(sections, instances, report_name, materials)
+        html = _build_html(sections, instances, report_name, materials, hardware_rows)
         out = os.path.join(tempfile.gettempdir(), _safe_filename(report_name) + '.html')
         with open(out, 'w', encoding='utf-8') as f:
             f.write(html)
@@ -271,8 +264,12 @@ def command_execute(args: adsk.core.CommandEventArgs):
     total_unmatched = sum(s['pieces'] for s in unmatched)
     total_cost = sum(s['cost'] for s in sections)
 
+    hw_count = sum(r['qty'] for r in hardware_rows)
+
     msg = (f'Cut list "{report_name}" (×{qty}): {len(instances)} panel(s) across '
            f'{len(sections)} material/thickness group(s) → {total_sheets} sheet(s).')
+    if hw_count:
+        msg += f'\n{hw_count} purchased item(s) listed.'
     if total_cost:
         msg += f'\nEstimated stock cost: {total_cost:.2f}.'
     if total_unmatched:
@@ -340,26 +337,71 @@ def _build_sections(instances, materials, choices):
     return sections
 
 
-def _esc(s):
-    return str(s).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+def _hardware_rows(hw_instances):
+    """Purchased items grouped by component name (summed across cabinets — you buy
+    them in total): each {name, qty, unit, line, used_in}. Empty if no hardware."""
+    groups = {}
+    order = []
+    for it in hw_instances:
+        name = it['comp_name']
+        if name not in groups:
+            groups[name] = {'name': name, 'qty': 0, 'unit': float(it.get('cost') or 0.0),
+                            'parents': set()}
+            order.append(name)
+        groups[name]['qty'] += 1
+        parent = (it.get('parent') or '').strip()
+        if parent:
+            groups[name]['parents'].add(parent)
+    rows = []
+    for name in order:
+        g = groups[name]
+        g['line'] = g['qty'] * g['unit']
+        g['used_in'] = ', '.join(sorted(g['parents']))
+        rows.append(g)
+    rows.sort(key=lambda r: r['name'].lower())
+    return rows
 
 
-def _safe_filename(name):
-    base = re.sub(r'[^A-Za-z0-9_-]+', '_', str(name)).strip('_')
-    return base[:60] or 'woodcraft_cutlist'
+# Shared report helpers (defined once in report_utils.py).
+_esc = report_utils.esc
+_safe_filename = report_utils.safe_filename
+_swatch = report_utils.swatch
 
 
-def _swatch(color):
-    return (f"<span style='display:inline-block;width:11px;height:11px;border-radius:3px;"
-            f"background:{_esc(color)};border:1px solid #0003;vertical-align:middle;"
-            f"margin-right:6px'></span>")
+def _hardware_section_html(hardware_rows, has_hw_cost, hw_cost):
+    """The Purchased-items table for the cut-list report, or '' if no hardware."""
+    if not hardware_rows:
+        return ''
+    show_cab = any(r['used_in'] for r in hardware_rows)
+    out = ["<h2>Purchased items</h2><table><thead><tr><th class='l'>Item</th>"]
+    if show_cab:
+        out.append("<th class='l'>Used in</th>")
+    out.append("<th>Qty</th>")
+    if has_hw_cost:
+        out.append("<th>Unit cost</th><th>Total</th>")
+    out.append("</tr></thead><tbody>")
+    for r in hardware_rows:
+        out.append(f"<tr><td class='l'>{_esc(r['name'])}</td>")
+        if show_cab:
+            out.append(f"<td class='l'>{_esc(r['used_in'])}</td>")
+        out.append(f"<td>{r['qty']}</td>")
+        if has_hw_cost:
+            out.append(f"<td>{r['unit']:.2f}</td><td>{r['line']:.2f}</td>")
+        out.append("</tr>")
+    if has_hw_cost:
+        span = 3 if show_cab else 2
+        out.append(f"<tr><td class='l' colspan='{span}'><b>Total</b></td>"
+                   f"<td></td><td><b>{hw_cost:.2f}</b></td></tr>")
+    out.append("</tbody></table>")
+    return ''.join(out)
 
 
 # ---------------------------------------------------------------------------
 # Report
 # ---------------------------------------------------------------------------
-def _build_html(sections, instances, title, materials):
+def _build_html(sections, instances, title, materials, hardware_rows=None):
     now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+    hardware_rows = hardware_rows or []
     total_pieces = len(instances)
     matched = [s for s in sections if s['matched']]
     total_sheets = sum(s['num_sheets'] for s in matched)
@@ -373,6 +415,10 @@ def _build_html(sections, instances, title, materials):
     waste_m2 = max(0.0, board_m2 - placed_m2)
     total_cost = sum(s['cost'] for s in matched)
     has_cost = any((s['sheet'].get('cost') or 0) for s in matched)
+
+    hw_count = sum(r['qty'] for r in hardware_rows)
+    hw_cost = sum(r['line'] for r in hardware_rows)
+    has_hw_cost = any(r['line'] for r in hardware_rows)
 
     css = """<style>
       body{font-family:'Segoe UI',Arial,sans-serif;margin:24px;color:#222;}
@@ -413,9 +459,13 @@ def _build_html(sections, instances, title, materials):
         f"<div><span>Yield</span><b>{overall_yield:.0f}%</b></div>"
         f"<div><span>Waste</span><b>{waste_m2:.2f} m&sup2;</b></div>"
         + (f"<div><span>Stock cost</span><b>{total_cost:.2f}</b></div>" if has_cost else '')
+        + (f"<div><span>Purchased</span><b>{hw_count}</b></div>" if hw_count else '')
+        + (f"<div><span>Hardware cost</span><b>{hw_cost:.2f}</b></div>" if has_hw_cost else '')
         + (f"<div><span>Unmatched</span><b style='color:#b00'>{total_unmatched}</b></div>"
            if total_unmatched else '')
         + "</div>")
+
+    hardware_html = _hardware_section_html(hardware_rows, has_hw_cost, hw_cost)
 
     # Legend: one swatch per material/thickness group (matched first).
     legend_html = "<div class='legend'>" + ''.join(
@@ -513,7 +563,7 @@ def _build_html(sections, instances, title, materials):
         f'<h1>WoodCraft Cut List &mdash; {_esc(title)}</h1>'
         f'<div class="sub">Generated {now}{warn}</div>'
         f'<div class="params">{params_html}</div>'
-        + legend_html + summary_html + ''.join(blocks) + labels_html +
+        + legend_html + summary_html + ''.join(blocks) + hardware_html + labels_html +
         '<button onclick="window.print()">Print / Save PDF</button>'
         '</body></html>')
 
