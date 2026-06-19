@@ -6,6 +6,7 @@ from .carcassMaker import entry as carcassMaker
 from .trim import entry as trim
 from .editThickness import entry as editThickness
 from .shelf import entry as shelf
+from .lineBoring import entry as lineBoring
 from .convertPanel import entry as convertPanel
 from .insertHardware import entry as insertHardware
 from .sculpt import entry as sculpt
@@ -20,6 +21,7 @@ commands = [
     trim,
     editThickness,
     shelf,
+    lineBoring,
     convertPanel,
     insertHardware,
     sculpt,
