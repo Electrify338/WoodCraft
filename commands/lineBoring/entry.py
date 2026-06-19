@@ -52,7 +52,6 @@ BACK_ID = 'lb_back'
 PITCH_ID = 'lb_pitch'
 DIA_ID = 'lb_dia'
 DEPTH_ID = 'lb_depth'
-SWAP_ID = 'lb_swap'
 
 PREVIEW_SEG_CM = 0.4   # length of each preview "drill mark" along the bore direction
 
@@ -117,9 +116,6 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
                          adsk.core.ValueInput.createByReal(defaults['dia']))
     inputs.addValueInput(DEPTH_ID, 'Hole depth', length_units,
                          adsk.core.ValueInput.createByReal(defaults['depth']))
-
-    swap = inputs.addBoolValueInput(SWAP_ID, 'Swap front / back', True, '', False)
-    swap.tooltip = 'Flip which depth edge counts as the front (if the columns land on the wrong sides).'
 
     futil.add_handler(args.command.execute, command_execute, local_handlers=local_handlers)
     futil.add_handler(args.command.executePreview, command_preview, local_handlers=local_handlers)
@@ -217,7 +213,6 @@ def command_preview(args: adsk.core.CommandEventArgs):
 
         params = _read_params(inputs)
         rule = boring.RULES[0]
-        swap = inputs.itemById(SWAP_ID).value
         bp_world = _back_ref_world(inputs)   # preview uses world-space proxy faces
 
         group = root.customGraphicsGroups.add()
@@ -227,7 +222,7 @@ def command_preview(args: adsk.core.CommandEventArgs):
         for i in range(faces_input.selectionCount):
             face = faces_input.selection(i).entity
             try:
-                fr = boring.frame(face, swap, back_ref_point=bp_world)
+                fr = boring.frame(face, back_ref_point=bp_world)
                 p = dict(params)
                 p['back_depth'] = _back_depth(fr, bp_world)   # preview is all world-space
                 pts = rule.preview_points(fr, p)
@@ -251,7 +246,7 @@ def command_preview(args: adsk.core.CommandEventArgs):
             # Count label floated off the face centre; warn when orientation was guessed.
             label = f'{len(pts)} holes'
             if fr.ambiguous:
-                label += '  (orientation guessed — use Swap)'
+                label += '  (orientation guessed — pick the back panel face)'
             label_pt = _translated(fr.point(fr.height / 2.0, fr.depth / 2.0), fr.normal, 1.0)
             transform = adsk.core.Matrix3D.create()
             transform.translation = label_pt.asVector()
@@ -298,7 +293,6 @@ def command_execute(args: adsk.core.CommandEventArgs):
     front_edge = front_input.selection(0).entity if front_input.selectionCount else None
     rule = boring.RULES[0]
     params = _read_params(inputs)
-    swap = inputs.itemById(SWAP_ID).value
     bp_world = _back_ref_world(inputs)           # world point on the back panel face
 
     bored = 0
@@ -309,11 +303,11 @@ def command_execute(args: adsk.core.CommandEventArgs):
             # Validate against a native-space frame (cheap, geometry-only).
             up, front_refs = _ref_axes(face)
             bp_native = _to_native_point(face, bp_world)
-            fr_native = boring.frame(native, swap, up=up, front_refs=front_refs, back_ref_point=bp_native)
+            fr_native = boring.frame(native, up=up, front_refs=front_refs, back_ref_point=bp_native)
             p_native = dict(params)
             p_native['back_depth'] = _back_depth(fr_native, bp_native)
             rule.validate(fr_native, p_native)   # raises ValueError with a message
-            _bore_one(comp, face, native, back_proxy, front_edge, bp_world, params, swap)
+            _bore_one(comp, face, native, back_proxy, front_edge, bp_world, params)
             bored += 1
         except ValueError as ve:
             ui.messageBox(str(ve), CMD_NAME)
@@ -359,13 +353,13 @@ def _set_bore_direction(hole_input, sketch, fr):
         pass
 
 
-def _bore_one(comp, proxy_face, native_face, back_proxy, front_edge, bp_world, params, swap):
+def _bore_one(comp, proxy_face, native_face, back_proxy, front_edge, bp_world, params):
     """Try the live-parametric build (associative datums + seed + height pattern); if
     any step throws, roll back the partial features and fall back to explicit holes
     on the native face, which always build correctly. Either way the panel is bored."""
     created = []
     try:
-        _build_parametric(comp, proxy_face, back_proxy, front_edge, bp_world, params, swap, created)
+        _build_parametric(comp, proxy_face, back_proxy, front_edge, bp_world, params, created)
     except Exception:
         for feat in reversed(created):
             try:
@@ -373,16 +367,16 @@ def _bore_one(comp, proxy_face, native_face, back_proxy, front_edge, bp_world, p
             except Exception:
                 pass
         futil.log(f'{CMD_NAME}: parametric build failed; using explicit holes', force_console=True)
-        _build_explicit(comp, proxy_face, native_face, bp_world, params, swap)
+        _build_explicit(comp, proxy_face, native_face, bp_world, params)
 
 
-def _build_explicit(comp, proxy_face, native_face, bp_world, params, swap):
+def _build_explicit(comp, proxy_face, native_face, bp_world, params):
     """Robust fallback: drill every computed centre with one HoleFeature at fixed
     positions on the native face — no pattern, no cross-component refs, so it always
     builds. Not reflow-on-edit (the parametric path provides that)."""
     up, front_refs = _ref_axes(proxy_face)
     bp_native = _to_native_point(proxy_face, bp_world)
-    fr = boring.frame(native_face, swap, up=up, front_refs=front_refs, back_ref_point=bp_native)
+    fr = boring.frame(native_face, up=up, front_refs=front_refs, back_ref_point=bp_native)
     p = dict(params)
     p['back_depth'] = _back_depth(fr, bp_native)
     plan = boring.RULES[0].build_plan(fr, p)
@@ -400,7 +394,7 @@ def _build_explicit(comp, proxy_face, native_face, bp_world, params, swap):
     holes.add(hin)
 
 
-def _build_parametric(comp, proxy_face, back_proxy, front_edge, bp_world, params, swap, created):
+def _build_parametric(comp, proxy_face, back_proxy, front_edge, bp_world, params, created):
     """Live-parametric build, Shelf-Creator style: the sketch is created on the side
     panel face in ASSEMBLY context, so it can reference other components. Datums are
     real, associative geometry — the back column is dimensioned off the back-panel
@@ -412,7 +406,7 @@ def _build_parametric(comp, proxy_face, back_proxy, front_edge, bp_world, params
         raise RuntimeError('Back panel face is required for the parametric build.')
 
     # World frame from the assembly-context proxy face (matches the sketch space).
-    fr = boring.frame(proxy_face, swap, back_ref_point=bp_world)
+    fr = boring.frame(proxy_face, back_ref_point=bp_world)
     p = dict(params)
     p['back_depth'] = _back_depth(fr, bp_world)
     plan = boring.RULES[0].build_plan(fr, p)

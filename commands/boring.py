@@ -107,16 +107,16 @@ def _longest_edge_dir(face) -> adsk.core.Vector3D:
     return best
 
 
-def frame(face, swap_front_back: bool = False, up=None, front_refs=None, back_ref_point=None) -> Frame:
+def frame(face, up=None, front_refs=None, back_ref_point=None) -> Frame:
     """Derive a panel's local frame from its (inner) planar face.
 
     height_dir = the ``up`` reference projected into the face plane (the in-plane
     "up"); if the panel is lying flat, fall back to its longest edge. depth_dir is
     perpendicular to height; its FRONT direction is decided by ``back_ref_point``
     (point away from the picked back panel) when given, else by the first
-    ``front_refs`` reference that isn't in-plane-perpendicular. ``swap_front_back``
-    flips it. Extents come from an oriented bounding box aligned to those axes;
-    thickness from the body's extent along the normal.
+    ``front_refs`` reference that isn't in-plane-perpendicular. Extents come from an
+    oriented bounding box aligned to those axes; thickness from the body's extent
+    along the normal.
 
     ``up`` / ``front_refs`` / ``back_ref_point`` are all in the FACE's own space
     (world for a selection proxy, component space for a native face inside a rotated
@@ -166,9 +166,6 @@ def frame(face, swap_front_back: bool = False, up=None, front_refs=None, back_re
             depth_dir.scaleBy(-1.0)       # depth_dir pointed toward the back panel — flip to front
     elif not any(_orient_toward(depth_dir, ref) for ref in front_refs):
         ambiguous = True                  # front/back couldn't be inferred
-
-    if swap_front_back:
-        depth_dir.scaleBy(-1.0)
 
     origin = center.copy()
     origin.translateBy(_scaled(height_dir, -height / 2.0))
