@@ -82,8 +82,22 @@ WC_CAT_HARDWARE = 'hardware'    # purchased item   → BOM purchased-items only
 WC_CATEGORIES = (WC_CAT_PANEL, WC_CAT_HARDWARE)
 
 # Hardware unit cost (string-encoded float; currency is the user's own). Read back
-# by the BOM. Only meaningful on hardware components.
+# by the BOM and Cut List. Only meaningful on hardware components. Panels never
+# store a cost — theirs is derived at report time from the Sheets library (avg
+# sheet cost/m² × raw area, plus the Settings waste factor).
 WC_COST = 'cost'
+
+# How a hardware ASSEMBLY is purchased (hardware like a Minifix or a hinge is
+# correctly modelled as an assembly, but can be bought either way):
+#   'pack'     — one purchased unit: ITS cost applies and covers everything inside,
+#                so reports never also bill its children. Default (a lone screw is
+#                trivially its own pack).
+#   'separate' — translucent: its parts are bought individually, so reports look
+#                THROUGH it and sum the children's costs; a stored pack cost is
+#                kept on the component but ignored (switching modes loses nothing).
+WC_PURCHASE = 'purchase'
+WC_PURCHASE_PACK = 'pack'
+WC_PURCHASE_SEPARATE = 'separate'
 
 # Future keys plug in here with no core change, e.g.:
 #   WC_FINISH = 'finish'; WC_EDGEBAND = 'edgeband'; WC_PART_NO = 'partNumber'

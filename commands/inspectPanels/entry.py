@@ -17,6 +17,9 @@ import adsk.fusion
 
 from .. import ui_helpers
 from .. import panels
+from .. import wc_attrs
+from .. import sheets_store
+from .. import settings_store
 from ...lib import fusionAddInUtils as futil
 from ... import config
 
@@ -64,8 +67,10 @@ def _dims_mm(component):
 
 
 def _collect():
-    """(findAttributes_count, [(name, category, dims_mm, qty), ...]) for every
-    classified component.
+    """(findAttributes_count, [row dicts]) for every classified component, priced
+    the same way the billed BOM prices them: hardware shows its billed unit cost
+    (0 for a separate-parts assembly — its children carry the prices), panels show
+    the sheet-derived estimate (None = unpriced material).
 
     Uses the shared collector so this dev view matches exactly what the reports see.
     """
@@ -73,22 +78,33 @@ def _collect():
     if not design:
         return None, []
 
+    materials = sheets_store.load()['materials']
+    waste_mult = 1.0 + settings_store.get_waste_percent() / 100.0
+
     agg = {}
     order = []
     for it in panels.collect_instances(design):
         key = (it['comp_name'], it['category'])
         if key not in agg:
+            if it['category'] == config.WC_CAT_PANEL:
+                unit = panels.estimate_panel_unit_cost(
+                    it['material'], it['T'], it['L'], it['W'],
+                    materials=materials, waste_mult=waste_mult)
+                mode = ''
+            else:
+                unit = it['cost']    # 0 when bought as separate parts
+                mode = wc_attrs.get_purchase_mode(it['component'])
             agg[key] = {'name': it['comp_name'], 'category': it['category'],
-                        'dims': (it['L'], it['W'], it['T']), 'qty': 0}
+                        'dims': (it['L'], it['W'], it['T']), 'qty': 0,
+                        'unit': unit, 'mode': mode}
             order.append(key)
         agg[key]['qty'] += 1
-    rows = [(agg[k]['name'], agg[k]['category'], agg[k]['dims'], agg[k]['qty']) for k in order]
 
     try:
         fa_count = design.findAttributes(config.WC_GROUP, config.WC_CATEGORY).count
     except Exception:
         fa_count = -1
-    return fa_count, rows
+    return fa_count, [agg[k] for k in order]
 
 
 def command_created(args: adsk.core.CommandCreatedEventArgs):
@@ -106,13 +122,39 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
     elif not rows:
         html = f'No classified components found. (findAttributes count: {fa_count})'
     else:
-        pieces = sum(q for _, _, _, q in rows)
+        pieces = sum(r['qty'] for r in rows)
         lines = [f'<b>{pieces}</b> classified item(s) in <b>{len(rows)}</b> group(s) '
                  f'&nbsp;<i>(findAttributes: {fa_count})</i><br>']
-        for nm, cat, dims, qty in rows:
-            q = f'{qty}&times; ' if qty > 1 else ''
-            lines.append(f'<b>[{cat}]</b> {q}{nm}: &nbsp; '
-                         f'{dims[0]:.1f} &times; {dims[1]:.1f} &times; {dims[2]:.1f} mm')
+        hw_total = 0.0
+        panel_total = 0.0
+        unpriced = 0
+        for r in rows:
+            dims = r['dims']
+            q = f"{r['qty']}&times; " if r['qty'] > 1 else ''
+            line = (f"<b>[{r['category']}]</b> {q}{r['name']}: &nbsp; "
+                    f"{dims[0]:.1f} &times; {dims[1]:.1f} &times; {dims[2]:.1f} mm")
+            if r['category'] == config.WC_CAT_PANEL:
+                if r['unit'] is None:
+                    line += ' &nbsp;—&nbsp; <i>unpriced (no sheet cost)</i>'
+                    unpriced += r['qty']
+                else:
+                    line += (f" &nbsp;—&nbsp; &asymp;{r['unit']:.2f} each = "
+                             f"<b>&asymp;{r['unit'] * r['qty']:.2f}</b>")
+                    panel_total += r['unit'] * r['qty']
+            else:
+                if r['mode'] == config.WC_PURCHASE_SEPARATE:
+                    line += ' &nbsp;—&nbsp; <i>separate parts (children priced)</i>'
+                elif r['unit'] > 0:
+                    line += (f" &nbsp;—&nbsp; {r['unit']:.2f} each = "
+                             f"<b>{r['unit'] * r['qty']:.2f}</b>")
+                    hw_total += r['unit'] * r['qty']
+                else:
+                    line += ' &nbsp;—&nbsp; <i>no cost set</i>'
+            lines.append(line)
+        lines.append(f'<br><b>Panels &asymp;{panel_total:.2f} &nbsp;+&nbsp; '
+                     f'hardware {hw_total:.2f} &nbsp;=&nbsp; '
+                     f'&asymp;{panel_total + hw_total:.2f}</b>'
+                     + (f' &nbsp;<i>({unpriced} panel(s) unpriced)</i>' if unpriced else ''))
         html = '<br>'.join(lines)
 
     box = inputs.addTextBoxCommandInput(RESULT_ID, '', html, 18, True)

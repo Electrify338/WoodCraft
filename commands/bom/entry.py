@@ -52,10 +52,12 @@ PALETTE_NAME = 'BOM — Bill of Materials'
 PALETTE_URL = pathlib.Path(os.path.join(
     os.path.dirname(os.path.abspath(__file__)), 'resources', 'html', 'index.html')).as_uri()
 
-# Excel columns (header, width). Numbers stay numeric in the sheet.
+# Excel columns (header, width). Numbers stay numeric in the sheet. Panel costs
+# are sheet-library estimates (raw area × avg cost/m² + waste factor); hardware
+# costs are the values entered in Set Type.
 XLSX_HEADERS = ['Name', 'Type', 'Length (mm)', 'Width (mm)', 'Thickness (mm)',
-                'Qty', 'Material', 'Part #']
-XLSX_WIDTHS = [42, 12, 13, 13, 15, 6, 28, 18]
+                'Qty', 'Material', 'Part #', 'Unit cost', 'Total cost']
+XLSX_WIDTHS = [42, 12, 13, 13, 15, 6, 28, 18, 11, 12]
 
 local_handlers = []
 palette_handlers = []
@@ -168,16 +170,20 @@ def _payload():
         'design': _design_name(design) if design else '',
         'config': _active_config_name(design) if design else '',
         'rows': _count_rows(tree),
+        'totals': panels.tree_cost_totals(tree),
     }
 
 
 def _xlsx_rows(tree):
     """Flatten the tree into (cells, outline_level) rows for xlsx_writer. Leaf dims
     are numeric; assemblies leave dims blank. The name is space-indented by depth so
-    the hierarchy reads even with grouping collapsed."""
+    the hierarchy reads even with grouping collapsed. Ends with the billed-BOM
+    totals block (panels estimate / hardware / grand total)."""
     rows = []
     for node, level in panels.flatten_tree(tree):
         has_dims = node['type'] != 'Assembly' and node['L'] > 0
+        unit = node.get('unit_cost')
+        cost = node.get('cost')
         rows.append(([
             ('    ' * level) + node['name'],
             node['type'],
@@ -187,7 +193,27 @@ def _xlsx_rows(tree):
             node['qty'],
             node['material'] or '',
             node['part_number'] or '',
+            round(unit, 2) if unit is not None else '',
+            round(cost, 2) if cost is not None else '',
         ], level))
+
+    totals = panels.tree_cost_totals(tree)
+    if totals['grand'] or totals['unpriced_panels']:
+        blank = [''] * len(XLSX_HEADERS)
+        def total_row(label, value):
+            cells = list(blank)
+            cells[0] = label
+            cells[-1] = round(value, 2)
+            return (cells, 0)
+        rows.append((blank, 0))
+        rows.append(total_row('Panels (estimated)', totals['panels_est']))
+        rows.append(total_row('Hardware', totals['hardware']))
+        rows.append(total_row('TOTAL', totals['grand']))
+        if totals['unpriced_panels']:
+            cells = list(blank)
+            cells[0] = (f"{totals['unpriced_panels']} panel(s) unpriced — no sheet "
+                        f"cost for their material in the Sheets library")
+            rows.append((cells, 0))
     return rows
 
 

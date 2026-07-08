@@ -40,22 +40,28 @@ button {
 button:hover { border-color: var(--accent); }
 button.primary { background: var(--accent); color: #20242a; border-color: var(--accent); font-weight: 600; }
 
-main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+/* ONE scroll container for header + rows: vertical scrolling keeps the (sticky)
+   header in view; when the palette is narrower than the columns the whole table
+   scrolls horizontally instead of clipping the last columns. */
+main { flex: 1; min-height: 0; overflow: auto; }
 
-/* Shared column template for the header and every row. */
+/* Shared column template for the header and every row. min-width stops the fixed
+   tracks from crushing/overflowing — below it, main scrolls horizontally. */
 .grid {
   display: grid;
-  grid-template-columns: minmax(190px, 1.6fr) 92px 150px minmax(120px, 1fr) 54px 120px;
+  grid-template-columns: minmax(150px, 1.6fr) 80px 128px minmax(90px, 1fr) 40px 94px 72px 86px;
+  min-width: 820px;
   align-items: center; gap: 8px;
   padding: 5px 12px;
 }
 .grid.head {
+  position: sticky; top: 0; z-index: 2;
   color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .4px;
   border-bottom: 1px solid var(--line); background: var(--panel);
 }
-.grid .c-dims, .grid .c-qty { text-align: right; }
+.grid .c-dims, .grid .c-qty, .grid .c-unit, .grid .c-cost { text-align: right; }
 
-.rows { flex: 1; min-height: 0; overflow: auto; padding: 4px 0 16px; }
+.rows { padding: 4px 0 16px; }
 
 .row { border-bottom: 1px solid #ffffff0d; cursor: default; }
 .row:hover { background: var(--panel2); }
@@ -65,7 +71,10 @@ main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row.asm .nm { font-weight: 600; }
 
-.c-dims, .c-qty { text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
+.c-dims, .c-qty, .c-unit, .c-cost { text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
+.c-unit { color: var(--muted); }
+.row.asm .c-cost { font-weight: 600; }
+.est { color: var(--accent); }
 .c-mat { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .c-part { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .muted { color: var(--muted); }

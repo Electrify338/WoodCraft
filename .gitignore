@@ -24,3 +24,6 @@ desktop.ini
 # MD files
 JoinerCAD_Addon_Analysis.md
 generate_icons.py
+
+# Claude Code local tooling
+.claude/

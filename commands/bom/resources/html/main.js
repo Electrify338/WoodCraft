@@ -24,7 +24,7 @@ window.fusionJavaScriptHandler = { handle: function () { return 'OK'; } };
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
-const state = { tree: [], design: '', config: '' };
+const state = { tree: [], design: '', config: '', totals: null };
 const collapsed = new WeakSet();   // assemblies the user has collapsed (default: open)
 
 // Small DOM builder (avoids manual HTML escaping of component names).
@@ -46,6 +46,7 @@ function h(tag, attrs, ...kids) {
 }
 
 function fmt(n) { const v = parseFloat(n); return isNaN(v) ? '0' : (Math.round(v * 10) / 10).toString(); }
+function money(n) { const v = parseFloat(n); return isNaN(v) ? '' : v.toFixed(2); }
 
 // ---------------------------------------------------------------------------
 // Init
@@ -63,6 +64,7 @@ async function load() {
   state.tree = Array.isArray(p.tree) ? p.tree : [];
   state.design = p.design || '';
   state.config = p.config || '';
+  state.totals = p.totals || null;
   render();
 }
 
@@ -101,9 +103,20 @@ function render() {
     sum.append(h('span', {}, totalRows + ' component rows'));
     if (state.design) sum.append(h('span', {}, '  ·  design '), h('b', {}, state.design));
     if (state.config) sum.append(h('span', {}, '  ·  configuration '), h('b', {}, state.config));
+    const t = state.totals;
+    if (t && (t.grand || t.unpriced_panels)) {
+      sum.append(h('span', {}, '  ·  panels '), h('b', { class: 'est' }, '≈ ' + money(t.panels_est)));
+      sum.append(h('span', {}, '  ·  hardware '), h('b', {}, money(t.hardware)));
+      sum.append(h('span', {}, '  ·  total '), h('b', {}, '≈ ' + money(t.grand)));
+      if (t.unpriced_panels) {
+        sum.append(h('span', { class: 'est', title: 'No sheet cost found for their material in the Sheets library' },
+          '  ·  ' + t.unpriced_panels + ' panel(s) unpriced'));
+      }
+    }
   }
   document.getElementById('pathNote').textContent =
-    'Part numbers come from each component’s Fusion property. Export writes a native .xlsx.';
+    'Panel costs are estimates: raw area × average sheet cost/m² + the waste factor from Settings. ' +
+    'Hardware costs come from Set Type. Export writes a native .xlsx.';
 
   // Rows
   const box = document.getElementById('rows');
@@ -140,13 +153,30 @@ function rowEl(node, level, hasChildren, open) {
   const mat = node.material || '';
   const part = node.part_number || '';
 
+  // Cost cells. 'est' totals are sheet-derived estimates (≈); 'absorbed' means the
+  // item is inside a priced purchased unit, so its own price is not counted again.
+  const kind = node.cost_kind;
+  const unitTxt = node.unit_cost != null ? money(node.unit_cost) : '';
+  let costTxt = '—', costTitle = '', costClass = ' muted';
+  if (kind === 'absorbed') {
+    costTxt = 'in parent';
+    costTitle = 'Covered by the price of the purchased unit it belongs to';
+  } else if (node.cost != null) {
+    costTxt = (kind === 'est' ? '≈ ' : '') + money(node.cost);
+    costClass = kind === 'est' ? ' est' : '';
+    if (kind === 'est') costTitle = 'Estimated from sheet cost/m² × area + waste factor';
+    if (kind === 'rollup') costTitle = 'Sum of the items inside';
+  }
+
   return h('div', { class: 'row grid' + (isAsm ? ' asm' : '') },
     h('span', { class: 'c-name' }, caret, h('span', { class: 'nm', title: node.name }, node.name)),
     h('span', { class: 'c-type' }, h('span', { class: 'badge ' + node.type }, node.type)),
     h('span', { class: 'c-dims' + (dims ? '' : ' muted') }, dims || '—'),
     h('span', { class: 'c-mat', title: mat }, mat || '—'),
     h('span', { class: 'c-qty' }, String(node.qty)),
-    h('span', { class: 'c-part', title: part }, part || '—')
+    h('span', { class: 'c-part', title: part }, part || '—'),
+    h('span', { class: 'c-unit' + (unitTxt ? '' : ' muted') }, unitTxt || '—'),
+    h('span', { class: 'c-cost' + costClass, title: costTitle }, costTxt)
   );
 }
 

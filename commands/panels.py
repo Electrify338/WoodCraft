@@ -14,6 +14,8 @@ import adsk.fusion
 
 from .. import config
 from . import wc_attrs
+from . import sheets_store
+from . import settings_store
 
 
 def panel_material(component):
@@ -68,6 +70,17 @@ def looks_like_panel(dims, min_t=3.0, max_t=40.0, min_ratio=4.0):
     return (W / T) >= min_ratio
 
 
+def _priced_hardware(component):
+    """True when this component counts as ONE priced purchased unit whose price
+    covers everything inside it: hardware, with its own cost, bought as a pack.
+    In 'separate' purchase mode the component is translucent — its parts are
+    bought individually, so any stored pack cost is ignored and reports sum the
+    children instead."""
+    return (wc_attrs.is_hardware(component)
+            and wc_attrs.get_cost(component) > 0
+            and wc_attrs.get_purchase_mode(component) == config.WC_PURCHASE_PACK)
+
+
 def _make_instance(occ_or_comp, comp, dims, category, parent=''):
     L, W, T = dims
     return {
@@ -75,7 +88,9 @@ def _make_instance(occ_or_comp, comp, dims, category, parent=''):
         'comp_name': comp.name,
         'parent': parent,
         'category': category,
-        'cost': wc_attrs.get_cost(comp) if category == config.WC_CAT_HARDWARE else 0.0,
+        # Only a pack-priced unit bills its own cost; a separate-mode assembly's
+        # stored pack price must not ALSO be billed next to its children's.
+        'cost': wc_attrs.get_cost(comp) if _priced_hardware(comp) else 0.0,
         'L': L, 'W': W, 'T': T,
         'material': panel_material(comp),
         'component': comp,
@@ -158,6 +173,12 @@ def collect_instances(design, root=None, categories=None, root_name=''):
 
     def walk(occ, parent):
         consider(occ, occ.component, parent)
+        # A hardware component with its OWN price is a purchased unit: whatever
+        # is inside it is already covered by that price, so descending would
+        # double-count its children (e.g. a Minifix assembly priced as a whole
+        # vs. its screw + cam priced individually — only one level may count).
+        if _priced_hardware(occ.component):
+            return
         # Descend with THIS occurrence's component name as its children's parent.
         try:
             children = occ.childOccurrences
@@ -172,9 +193,10 @@ def collect_instances(design, root=None, categories=None, root_name=''):
     # no-op there.)
     consider(root, root, root_name)
 
-    occs = root.occurrences
-    for i in range(occs.count):
-        walk(occs.item(i), root_name)
+    if not _priced_hardware(root):
+        occs = root.occurrences
+        for i in range(occs.count):
+            walk(occs.item(i), root_name)
 
     return instances
 
@@ -240,21 +262,67 @@ def _node_type(component, has_children):
 
 def build_tree(design, root=None):
     """Hierarchical bill of materials. Returns a list of top-level nodes; each node:
-    {name, type, material, part_number, L, W, T (mm), qty, children:[...]}.
+    {name, type, material, part_number, L, W, T (mm), qty,
+     unit_cost, cost, cost_kind, children:[...]}.
 
     Walks the occurrence tree (occurrences -> childOccurrences) so the structure
     mirrors the browser, and groups identical sibling components into ONE node whose
     `qty` is the count within that parent (standard indented-BOM quantities). Every
     component is included — assemblies (cabinets), classified panels/hardware, and
-    unclassified parts alike — so the structure is complete regardless of tagging."""
+    unclassified parts alike — so the structure is complete regardless of tagging.
+
+    Costing (`unit_cost` = one instance, `cost` = unit_cost × qty, both None when
+    unpriced; `cost_kind` says where the number came from):
+      'set'      hardware with its own WC_COST — a purchased unit. Its descendants
+                 are re-marked 'absorbed' (cost None): the parent price covers them,
+                 counting both would double-bill (e.g. a priced Minifix assembly
+                 vs. its individually-priced screw + cam).
+      'est'      panel — raw area × the sheet library's average cost/m² for its
+                 (material, thickness), plus the global waste factor (Settings).
+      'rollup'   assembly / unpriced hardware — the sum of its children's costs.
+      'absorbed' inside a priced purchased unit (unit_cost kept for reference).
+      None       nothing priced anywhere below."""
     if design is None:
         return []
     root = root or design.rootComponent
 
+    materials = sheets_store.load()['materials']
+    waste_mult = 1.0 + settings_store.get_waste_percent() / 100.0
+    rate_cache = {}   # (material lower, thickness rounded) -> rate or None
+
+    def rate_for(material_name, thickness):
+        key = (str(material_name).strip().lower(), round(thickness, 1))
+        if key not in rate_cache:
+            m = sheets_store.find_material(materials, material_name, thickness)
+            rate_cache[key] = sheets_store.cost_rate_per_m2(m)
+        return rate_cache[key]
+
+    def absorb(nodes):
+        for n in nodes:
+            n['cost'] = None
+            n['cost_kind'] = 'absorbed'
+            absorb(n['children'])
+
+    def cost_for(component, node, children):
+        """(unit_cost, cost_kind) for one instance of `component`."""
+        if _priced_hardware(component):
+            absorb(children)
+            return wc_attrs.get_cost(component), 'set'
+        if node['type'] == 'Panel':
+            rate = rate_for(node['material'], node['T'])
+            if rate is None or node['L'] <= 0:
+                return None, None
+            area_m2 = node['L'] * node['W'] / 1e6
+            return area_m2 * rate * waste_mult, 'est'
+        rolled = [c['cost'] for c in children if c['cost'] is not None]
+        if rolled:
+            return sum(rolled), 'rollup'
+        return None, None
+
     def node_for(component, qty):
         children = build_level(component.occurrences)
         dims = panel_dims_mm(component) or (0.0, 0.0, 0.0)
-        return {
+        node = {
             'name': component.name,
             'type': _node_type(component, bool(children)),
             'material': panel_material(component),
@@ -263,6 +331,11 @@ def build_tree(design, root=None):
             'qty': qty,
             'children': children,
         }
+        unit, kind = cost_for(component, node, children)
+        node['unit_cost'] = unit
+        node['cost'] = unit * qty if unit is not None else None
+        node['cost_kind'] = kind
+        return node
 
     def build_level(occ_collection):
         # Aggregate identical sibling components into one node carrying a quantity,
@@ -280,7 +353,66 @@ def build_tree(design, root=None):
                 groups.append({'comp': comp, 'qty': 1})
         return [node_for(g['comp'], g['qty']) for g in groups]
 
-    return build_level(root.occurrences)
+    nodes = build_level(root.occurrences)
+    # A PART document (or a scope narrowed to a leaf) has no occurrences to walk —
+    # the root component IS the item. Emit it as the single node so a lone dowel
+    # or bracket still gets a BOM. Assemblies keep the root out (its children are
+    # the top-level rows), same as before.
+    if not nodes:
+        has_content = False
+        try:
+            has_content = root.bRepBodies.count > 0
+        except Exception:
+            pass
+        if has_content or wc_attrs.get_category(root):
+            nodes = [node_for(root, 1)]
+    return nodes
+
+
+def estimate_panel_unit_cost(material_name, thickness, L_mm, W_mm,
+                             materials=None, waste_mult=None):
+    """Sheet-derived estimated cost of ONE panel — raw area × the material's
+    average sheet cost/m² × the waste factor — or None when the Sheets library
+    has no priced sheet for (material_name, thickness). Pass `materials` /
+    `waste_mult` when calling in a loop to avoid re-reading the stores."""
+    if materials is None:
+        materials = sheets_store.load()['materials']
+    if waste_mult is None:
+        waste_mult = 1.0 + settings_store.get_waste_percent() / 100.0
+    rate = sheets_store.cost_rate_per_m2(
+        sheets_store.find_material(materials, material_name, thickness))
+    if rate is None or L_mm <= 0:
+        return None
+    return L_mm * W_mm / 1e6 * rate * waste_mult
+
+
+def tree_cost_totals(nodes):
+    """Bill split for a build_tree() result:
+    {'panels_est', 'hardware', 'grand', 'unpriced_panels'} — panels_est is the
+    sheet-derived estimate, hardware the entered purchase costs, grand their sum;
+    unpriced_panels counts physical panels no rate could be found for (so a low
+    total can't silently mean 'panels missing from the bill').
+
+    Node costs are relative to ONE instance of their parent, so the walk carries
+    the multiplier of enclosing quantities (2 cabinets × 4 screws = 8 screws)."""
+    totals = {'panels_est': 0.0, 'hardware': 0.0, 'grand': 0.0, 'unpriced_panels': 0}
+
+    def walk(ns, mult):
+        for n in ns:
+            eff_qty = mult * n['qty']
+            kind = n.get('cost_kind')
+            if kind == 'set':
+                totals['hardware'] += n['unit_cost'] * eff_qty
+                continue    # descendants are absorbed in this price
+            if kind == 'est':
+                totals['panels_est'] += n['unit_cost'] * eff_qty
+            elif n['type'] == 'Panel' and kind is None:
+                totals['unpriced_panels'] += eff_qty
+            walk(n['children'], eff_qty)
+
+    walk(nodes, 1)
+    totals['grand'] = totals['panels_est'] + totals['hardware']
+    return totals
 
 
 def flatten_tree(nodes, level=0):

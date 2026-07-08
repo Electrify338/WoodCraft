@@ -235,6 +235,27 @@ def find_material(materials, name, thickness, tol=0.5):
     return None
 
 
+def cost_rate_per_m2(material):
+    """Average cost per square metre across this material's PRICED sheets, or None
+    if the material is missing / no sheet has a cost. Each sheet contributes its
+    own rate (cost / raw L×W area) and the rates are averaged — averaging the
+    costs themselves would be meaningless across different sheet sizes. Raw area
+    (not trim-adjusted) on purpose: this feeds a rough BOM estimate; the real
+    spend is the Cut List's sheets-used × sheet-cost."""
+    if not material:
+        return None
+    rates = []
+    for s in material.get('sheets') or []:
+        cost = _num(s.get('cost'))
+        length = _num(s.get('length'))
+        width = _num(s.get('width'))
+        if cost > 0 and length > 0 and width > 0:
+            rates.append(cost / (length * width / 1e6))
+    if not rates:
+        return None
+    return sum(rates) / len(rates)
+
+
 def rotation_allows_rotation(code):
     """Does this rotation setting let our guillotine packer rotate a part 90°?
     'all'/'90_270' yes; 'none'/'180' no (180° doesn't change a rectangle)."""

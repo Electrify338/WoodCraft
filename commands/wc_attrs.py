@@ -91,3 +91,18 @@ def set_cost(component, cost) -> bool:
         return set_value(component, config.WC_COST, f'{float(cost):.4f}')
     except (TypeError, ValueError):
         return False
+
+
+# ---------------------------------------------------------------------------
+# Hardware purchase mode (pack vs separate parts)
+# ---------------------------------------------------------------------------
+def get_purchase_mode(component):
+    """'pack' (default — also for components stamped before this key existed) or
+    'separate'. Only meaningful on hardware components."""
+    value = get_value(component, config.WC_PURCHASE)
+    return config.WC_PURCHASE_SEPARATE if value == config.WC_PURCHASE_SEPARATE \
+        else config.WC_PURCHASE_PACK
+
+
+def set_purchase_mode(component, mode) -> bool:
+    return set_value(component, config.WC_PURCHASE, mode)
