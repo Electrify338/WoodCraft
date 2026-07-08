@@ -169,6 +169,7 @@ function rowEl(node, level, hasChildren, open) {
   }
 
   return h('div', { class: 'row grid' + (isAsm ? ' asm' : '') },
+    h('span', { class: 'c-no' }, node.no || ''),
     h('span', { class: 'c-name' }, caret, h('span', { class: 'nm', title: node.name }, node.name)),
     h('span', { class: 'c-type' }, h('span', { class: 'badge ' + node.type }, node.type)),
     h('span', { class: 'c-dims' + (dims ? '' : ' muted') }, dims || '—'),

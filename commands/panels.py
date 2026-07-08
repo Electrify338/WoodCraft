@@ -366,7 +366,17 @@ def build_tree(design, root=None):
             pass
         if has_content or wc_attrs.get_category(root):
             nodes = [node_for(root, 1)]
+    _number_tree(nodes)
     return nodes
+
+
+def _number_tree(nodes, prefix=''):
+    """Stamp standard indented-BOM item numbers on every node ('no'): top level
+    1, 2, 3…; children 1.1, 1.2…; grandchildren 1.1.1… Position-derived, so the
+    palette and the Excel export always agree."""
+    for i, n in enumerate(nodes, 1):
+        n['no'] = f'{prefix}.{i}' if prefix else str(i)
+        _number_tree(n['children'], n['no'])
 
 
 def estimate_panel_unit_cost(material_name, thickness, L_mm, W_mm,

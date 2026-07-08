@@ -49,8 +49,8 @@ main { flex: 1; min-height: 0; overflow: auto; }
    tracks from crushing/overflowing — below it, main scrolls horizontally. */
 .grid {
   display: grid;
-  grid-template-columns: minmax(150px, 1.6fr) 80px 128px minmax(90px, 1fr) 40px 94px 72px 86px;
-  min-width: 820px;
+  grid-template-columns: 64px minmax(150px, 1.6fr) 80px 128px minmax(90px, 1fr) 40px 94px 72px 86px;
+  min-width: 892px;
   align-items: center; gap: 8px;
   padding: 5px 12px;
 }
@@ -72,6 +72,8 @@ main { flex: 1; min-height: 0; overflow: auto; }
 .row.asm .nm { font-weight: 600; }
 
 .c-dims, .c-qty, .c-unit, .c-cost { text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
+.c-no { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.row.asm .c-no { color: var(--text); font-weight: 600; }
 .c-unit { color: var(--muted); }
 .row.asm .c-cost { font-weight: 600; }
 .est { color: var(--accent); }
