@@ -43,14 +43,57 @@ def panel_material(component):
     return ''
 
 
-def panel_dims_mm(component):
-    """Sorted (L, W, T) in millimetres from the component's bounding box, or None."""
+def _bbox_ext_mm(bb):
+    """Bounding-box extents in millimetres, sorted largest first."""
+    ext = [(bb.maxPoint.x - bb.minPoint.x) * 10.0,
+           (bb.maxPoint.y - bb.minPoint.y) * 10.0,
+           (bb.maxPoint.z - bb.minPoint.z) * 10.0]
+    ext.sort(reverse=True)
+    return ext
+
+
+def _sheet_metal_dims_mm(component):
+    """Unfolded (L, W, T) in millimetres for a sheet-metal component, or None for
+    a regular part.
+
+    A bent/curved sheet-metal part wraps around its bounding box, so the box's
+    smallest extent is the bend envelope, not the sheet thickness (a curved 18 mm
+    panel reads as 780 mm thick). Prefer the flat pattern's body — the true
+    unfolded blank, which is also the size the cut list must nest (arc length,
+    not chord). When no flat pattern has been created yet, fall back to the
+    component's sheet-metal rule for T with the folded bounding box for L/W
+    (approximate: the folded extents undersell the blank)."""
     try:
-        bb = component.boundingBox
-        ext = [(bb.maxPoint.x - bb.minPoint.x) * 10.0,
-               (bb.maxPoint.y - bb.minPoint.y) * 10.0,
-               (bb.maxPoint.z - bb.minPoint.z) * 10.0]
-        ext.sort(reverse=True)
+        if not any(b.isSheetMetal for b in component.bRepBodies):
+            return None
+    except Exception:
+        return None
+    try:
+        fp = component.flatPattern
+        if fp:
+            ext = _bbox_ext_mm(fp.flatBody.boundingBox)
+            return (ext[0], ext[1], ext[2])
+    except Exception:
+        pass
+    try:
+        rule = component.activeSheetMetalRule
+        if rule:
+            ext = _bbox_ext_mm(component.boundingBox)
+            return (ext[0], ext[1], rule.thickness.value * 10.0)
+    except Exception:
+        pass
+    return None
+
+
+def panel_dims_mm(component):
+    """Sorted (L, W, T) in millimetres, or None. Flat parts measure straight off
+    the component's bounding box; sheet-metal parts use their flat pattern / rule
+    so bent panels report the real sheet thickness and unfolded blank size."""
+    dims = _sheet_metal_dims_mm(component)
+    if dims:
+        return dims
+    try:
+        ext = _bbox_ext_mm(component.boundingBox)
         return (ext[0], ext[1], ext[2])
     except Exception:
         return None
