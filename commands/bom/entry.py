@@ -55,9 +55,9 @@ PALETTE_URL = pathlib.Path(os.path.join(
 # Excel columns (header, width). Numbers stay numeric in the sheet. Panel costs
 # are sheet-library estimates (raw area × avg cost/m² + waste factor); hardware
 # costs are the values entered in Set Type.
-XLSX_HEADERS = ['No.', 'Name', 'Type', 'Length (mm)', 'Width (mm)', 'Thickness (mm)',
-                'Qty', 'Material', 'Part #', 'Unit cost', 'Total cost']
-XLSX_WIDTHS = [10, 42, 12, 13, 13, 15, 6, 28, 18, 11, 12]
+XLSX_HEADERS = ['No.', 'Part #', 'Name', 'Type', 'Length (mm)', 'Width (mm)',
+                'Thickness (mm)', 'Qty', 'Material', 'Unit cost', 'Total cost']
+XLSX_WIDTHS = [10, 18, 42, 12, 13, 13, 15, 6, 28, 11, 12]
 
 local_handlers = []
 palette_handlers = []
@@ -187,6 +187,7 @@ def _xlsx_rows(tree):
         cost = node.get('cost')
         rows.append(([
             node.get('no', ''),
+            node['part_number'] or '',
             ('    ' * level) + node['name'],
             node['type'],
             round(node['L'], 1) if has_dims else '',
@@ -194,7 +195,6 @@ def _xlsx_rows(tree):
             round(node['T'], 1) if has_dims else '',
             node['qty'],
             node['material'] or '',
-            node['part_number'] or '',
             round(unit, 2) if unit is not None else '',
             round(cost, 2) if cost is not None else '',
         ], level))
@@ -209,20 +209,20 @@ def _xlsx_rows(tree):
         rows.append((blank, 0))
         for band in totals['edgebands']:
             cells = list(blank)
-            cells[1] = f"Edgeband — {band['name']}"
-            cells[2] = 'Edgeband'
-            cells[3] = round(band['length_mm'], 0)
-            cells[7] = f"{band['length_mm'] / 1000.0:.2f} m"
+            cells[2] = f"Edgeband — {band['name']}"
+            cells[3] = 'Edgeband'
+            cells[4] = round(band['length_mm'], 0)
+            cells[8] = f"{band['length_mm'] / 1000.0:.2f} m"
             if band['cost'] is not None:
                 cells[-1] = round(band['cost'], 2)
             else:
-                cells[8] = 'no cost/m in the Sheets library'
+                cells[1] = 'no cost/m in the Sheets library'
             rows.append((cells, 0))
 
     if totals['grand'] or totals['unpriced_panels']:
         def total_row(label, value):
             cells = list(blank)
-            cells[1] = label
+            cells[2] = label
             cells[-1] = round(value, 2)
             return (cells, 0)
         rows.append((blank, 0))
@@ -233,7 +233,7 @@ def _xlsx_rows(tree):
         rows.append(total_row('TOTAL', totals['grand']))
         if totals['unpriced_panels']:
             cells = list(blank)
-            cells[1] = (f"{totals['unpriced_panels']} panel(s) unpriced — no sheet "
+            cells[2] = (f"{totals['unpriced_panels']} panel(s) unpriced — no sheet "
                         f"cost for their material in the Sheets library")
             rows.append((cells, 0))
     return rows

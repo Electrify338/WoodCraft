@@ -177,6 +177,7 @@ function renderEdgebandRows(box, node, level) {
     const total = b.cost != null ? b.cost * node.qty : null;
     box.append(h('div', { class: 'row grid ebrow' },
       h('span', { class: 'c-no' }, ''),
+      h('span', { class: 'c-part muted' }, '—'),
       h('span', { class: 'c-name' }, caret, h('span', { class: 'nm', title: b.name }, b.name)),
       h('span', { class: 'c-type' }, h('span', { class: 'badge Edgeband' }, 'Edgeband')),
       h('span', { class: 'c-dims', title: 'Banding length per piece' }, metres(b.length_mm)),
@@ -184,7 +185,6 @@ function renderEdgebandRows(box, node, level) {
                   title: b.cost_per_m != null ? 'Cost per metre from the Sheets library' : 'No cost per metre set in the Sheets library' },
         b.cost_per_m != null ? money(b.cost_per_m) + ' /m' : 'unpriced'),
       h('span', { class: 'c-qty' }, String(node.qty)),
-      h('span', { class: 'c-part muted' }, '—'),
       h('span', { class: 'c-unit' + (unitTxt ? '' : ' muted'), title: unitTxt ? 'Banding cost per piece (incl. waste factor)' : '' }, unitTxt || '—'),
       h('span', { class: 'c-cost' + (total != null ? ' est' : ' muted'),
                   title: total != null ? 'Estimated: metres × cost/m + waste factor' : '' },
@@ -230,12 +230,12 @@ function rowEl(node, level, hasChildren, open) {
 
   return h('div', { class: 'row grid' + (isAsm ? ' asm' : '') },
     h('span', { class: 'c-no' }, node.no || ''),
+    h('span', { class: 'c-part', title: part }, part || '—'),
     h('span', { class: 'c-name' }, caret, h('span', { class: 'nm', title: node.name }, node.name), ebTag),
     h('span', { class: 'c-type' }, h('span', { class: 'badge ' + node.type }, node.type)),
     h('span', { class: 'c-dims' + (dims ? '' : ' muted') }, dims || '—'),
     h('span', { class: 'c-mat', title: mat }, mat || '—'),
     h('span', { class: 'c-qty' }, String(node.qty)),
-    h('span', { class: 'c-part', title: part }, part || '—'),
     h('span', { class: 'c-unit' + (unitTxt ? '' : ' muted') }, unitTxt || '—'),
     h('span', { class: 'c-cost' + costClass, title: costTitle }, costTxt)
   );
