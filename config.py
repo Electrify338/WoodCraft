@@ -99,5 +99,12 @@ WC_PURCHASE = 'purchase'
 WC_PURCHASE_PACK = 'pack'
 WC_PURCHASE_SEPARATE = 'separate'
 
+# Edgeband — stamped on a panel's edge FACES (BRepFace), not the component: the
+# value is the NAME of an edgeband from the Sheets library's band catalogue. The
+# Edgeband command writes it; the BOM joins name → catalogue row at report time
+# to price the summed edge lengths (cost per metre lives in the library, never
+# on the face — same philosophy as panel costs being derived, never stored).
+WC_EDGEBAND = 'edgeband'
+
 # Future keys plug in here with no core change, e.g.:
-#   WC_FINISH = 'finish'; WC_EDGEBAND = 'edgeband'; WC_PART_NO = 'partNumber'
+#   WC_FINISH = 'finish'; WC_PART_NO = 'partNumber'

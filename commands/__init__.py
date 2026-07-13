@@ -8,6 +8,7 @@ from .editThickness import entry as editThickness
 from .shelf import entry as shelf
 from .lineBoring import entry as lineBoring
 from .convertPanel import entry as convertPanel
+from .edgeband import entry as edgeband
 from .insertHardware import entry as insertHardware
 from .sculpt import entry as sculpt
 from .sheets import entry as sheets
@@ -24,6 +25,7 @@ commands = [
     shelf,
     lineBoring,
     convertPanel,
+    edgeband,
     insertHardware,
     sculpt,
     sheets,

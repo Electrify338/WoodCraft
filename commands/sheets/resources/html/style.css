@@ -104,6 +104,11 @@ input[type=color] {
 .colorwrap { display: flex; align-items: center; gap: 8px; }
 .colorwrap input[type=text] { width: 100px; }
 
+/* Edgebands group: set apart from the material list with a top rule. */
+.ebgroup { margin-top: 10px; border-top: 1px solid var(--line); border-radius: 0 0 6px 6px; padding-top: 4px; }
+
+.note { color: var(--muted); font-size: 12px; line-height: 1.5; }
+
 .path { color: var(--muted); font-size: 11px; }
 footer { padding: 5px 12px; border-top: 1px solid var(--line); background: var(--panel); }
 

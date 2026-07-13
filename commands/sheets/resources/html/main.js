@@ -28,13 +28,15 @@ window.fusionJavaScriptHandler = {
 // State
 // ---------------------------------------------------------------------------
 const state = {
-  library: { materials: [] },
+  library: { materials: [], edgebands: [] },
   designMaterials: [],          // distinct Fusion material names on the design's panels
   designGroups: [],             // [{material, thickness, count}] detected in the design
   rotations: ['all', 'none', '90_270', '180'],
-  sel: { mi: -1, si: null },    // si === null => a material is selected
+  // si === null => a material is selected; ebi !== null => an edgeband is selected
+  sel: { mi: -1, si: null, ebi: null },
 };
 const expanded = new WeakSet();   // materials whose sheets are shown (not serialized)
+let ebOpen = true;                // Edgebands group expanded?
 
 const ROT_LABELS = {
   all: 'All rotations', none: 'None (grain locked)',
@@ -71,7 +73,9 @@ function h(tag, attrs, ...kids) {
 }
 
 const materials = () => state.library.materials;
+const edgebands = () => state.library.edgebands;
 const selMat = () => materials()[state.sel.mi];
+const selBand = () => (state.sel.ebi == null ? undefined : edgebands()[state.sel.ebi]);
 
 // ---------------------------------------------------------------------------
 // Init
@@ -80,13 +84,14 @@ async function init() {
   wireButtons();
   const p = await bridge('ready', {});
   state.library = (p.library && Array.isArray(p.library.materials)) ? p.library : { materials: [] };
+  if (!Array.isArray(state.library.edgebands)) state.library.edgebands = [];
   state.designMaterials = p.designMaterials || [];
   state.designGroups = p.designGroups || [];
   state.rotations = p.rotations || state.rotations;
   document.getElementById('pathNote').textContent =
     (p.path ? 'Library: ' + p.path + '  ·  ' : '') + 'Changes apply when you click Save.';
   fillDesignMaterials();
-  if (materials().length) { state.sel = { mi: 0, si: null }; expanded.add(materials()[0]); }
+  if (materials().length) { state.sel = { mi: 0, si: null, ebi: null }; expanded.add(materials()[0]); }
   render();
 }
 
@@ -103,6 +108,7 @@ function wireButtons() {
   document.getElementById('btnImport').addEventListener('click', onImport);
   document.getElementById('btnAddMaterial').addEventListener('click', onAddMaterial);
   document.getElementById('btnFromDesign').addEventListener('click', onFromDesign);
+  document.getElementById('btnAddEdgeband').addEventListener('click', onAddEdgeband);
   document.getElementById('categoryFilter').addEventListener('change', renderTree);
 }
 
@@ -110,10 +116,11 @@ async function onRefresh() {
   const p = await bridge('ready', {});
   if (p && p.library && Array.isArray(p.library.materials)) {
     state.library = p.library;
+    if (!Array.isArray(state.library.edgebands)) state.library.edgebands = [];
     state.designMaterials = p.designMaterials || [];
     state.designGroups = p.designGroups || [];
     fillDesignMaterials();
-    state.sel = { mi: state.library.materials.length ? 0 : -1, si: null };
+    state.sel = { mi: state.library.materials.length ? 0 : -1, si: null, ebi: null };
     if (state.library.materials.length) expanded.add(state.library.materials[0]);
     render();
     toast('Reloaded from disk · ' + state.designMaterials.length + ' design material(s) detected.');
@@ -203,13 +210,49 @@ function renderTree() {
   if (!tree.children.length) {
     tree.append(h('div', { class: 'empty' }, filter ? 'No materials in this category.' : 'No materials yet — click “+ Material”.'));
   }
+
+  renderEdgebandTree(tree);
+}
+
+// The Edgebands group sits under the materials: one flat list of band types
+// (used by the Edgeband command; priced per metre in the BOM).
+function renderEdgebandTree(tree) {
+  const box = h('div', { class: 'mat ebgroup' });
+  box.append(h('div', { class: 'mat-row', onclick: () => { ebOpen = !ebOpen; renderTree(); } },
+    h('span', { class: 'caret' }, ebOpen ? '▾' : '▸'),
+    h('span', { class: 'mat-name' }, 'Edgebands'),
+    h('span', { class: 'mat-th' }, String(edgebands().length)),
+    h('span', { class: 'mat-tools' },
+      h('button', { class: 'tiny', title: 'Add an edgeband', onclick: (e) => { e.stopPropagation(); onAddEdgeband(); } }, '+'))
+  ));
+
+  if (ebOpen) {
+    const list = h('div', { class: 'sheets' });
+    edgebands().forEach((b, ebi) => {
+      const isSel = state.sel.ebi === ebi;
+      list.append(h('div', { class: 'sheet-row' + (isSel ? ' sel' : ''), onclick: () => selectEdgeband(ebi) },
+        h('span', { class: 'swatch', style: 'background:' + (b.color || DEFAULT_COLOR) }),
+        h('span', { class: 'sheet-name', title: b.name || '(unnamed)' }, b.name || '(unnamed edgeband)'),
+        h('span', { class: 'sheet-dim' }, (b.width ? fmt(b.width) + '×' + fmt(b.thickness) : '')),
+        h('span', { class: 'sheet-tools' },
+          h('button', { class: 'tiny danger', title: 'Delete edgeband', onclick: (e) => { e.stopPropagation(); onDeleteEdgeband(ebi); } }, '✕'))
+      ));
+    });
+    list.append(h('div', { class: 'sheet-row addsheet', onclick: onAddEdgeband }, '+ add edgeband'));
+    box.append(list);
+  }
+  tree.append(box);
 }
 
 function renderDetail() {
   const d = document.getElementById('detail');
   d.innerHTML = '';
+
+  const b = selBand();
+  if (b) { renderEdgebandForm(d, b); return; }
+
   const m = selMat();
-  if (!m) { d.append(h('div', { class: 'empty' }, 'Select a material or sheet to edit.')); return; }
+  if (!m) { d.append(h('div', { class: 'empty' }, 'Select a material, sheet or edgeband to edit.')); return; }
 
   if (state.sel.si === null) { renderMaterialForm(d, m); }
   else {
@@ -217,6 +260,35 @@ function renderDetail() {
     if (s) renderSheetForm(d, m, s);
     else renderMaterialForm(d, m);
   }
+}
+
+function renderEdgebandForm(d, b) {
+  d.append(h('h3', {}, 'Edgeband'));
+  d.append(field('Name', h('input', {
+    type: 'text', value: b.name || '',
+    placeholder: 'e.g. PVC White 0.8 mm — the Edgeband command tags faces by this name',
+    oninput: e => { b.name = e.target.value; renderTree(); }
+  }), true));
+  d.append(field('Thickness (mm)', numInput(b, 'thickness', { renderTree: true })));
+  d.append(field('Width (mm)', numInput(b, 'width', { renderTree: true })));
+  d.append(field('Cost (per metre)', numInput(b, 'cost', {})));
+
+  const colorPick = h('input', {
+    type: 'color', value: toHex(b.color),
+    oninput: e => { b.color = e.target.value; hexText.value = e.target.value; renderTree(); }
+  });
+  const hexText = h('input', {
+    type: 'text', value: b.color || DEFAULT_COLOR, maxlength: 7,
+    oninput: e => { b.color = e.target.value; if (/^#[0-9a-fA-F]{6}$/.test(e.target.value)) colorPick.value = e.target.value; renderTree(); }
+  });
+  d.append(field('Colour', h('span', { class: 'colorwrap' }, colorPick, hexText)));
+  d.append(field('Comment', h('input', { type: 'text', value: b.comment || '', oninput: e => { b.comment = e.target.value; } })));
+
+  d.append(h('div', { class: 'subhead' }, 'Used by'));
+  d.append(h('div', { class: 'note' },
+    'The Edgeband command tags panel edge faces with this band BY NAME; the BOM ' +
+    'sums the tagged metres and multiplies by this cost per metre. Renaming a band ' +
+    'does not retag already-tagged faces.'));
 }
 
 function renderMaterialForm(d, m) {
@@ -310,20 +382,21 @@ function toHex(c) { return (/^#[0-9a-fA-F]{6}$/.test(c || '')) ? c : DEFAULT_COL
 // ---------------------------------------------------------------------------
 // Selection + edits
 // ---------------------------------------------------------------------------
-function selectMaterial(mi) { state.sel = { mi, si: null }; expanded.add(materials()[mi]); render(); }
-function selectSheet(mi, si) { state.sel = { mi, si }; render(); }
+function selectMaterial(mi) { state.sel = { mi, si: null, ebi: null }; expanded.add(materials()[mi]); render(); }
+function selectSheet(mi, si) { state.sel = { mi, si, ebi: null }; render(); }
+function selectEdgeband(ebi) { state.sel = { mi: -1, si: null, ebi }; render(); }
 function toggle(m) { if (expanded.has(m)) expanded.delete(m); else expanded.add(m); renderTree(); }
 
 function onAddMaterial() {
   const m = { name: '', thickness: 18, category: '', color: DEFAULT_COLOR, comment: '', sheets: [] };
   materials().push(m);
   expanded.add(m);
-  state.sel = { mi: materials().length - 1, si: null };
+  state.sel = { mi: materials().length - 1, si: null, ebi: null };
   render();
 }
 function onDeleteMaterial(mi) {
   materials().splice(mi, 1);
-  state.sel = { mi: Math.min(mi, materials().length - 1), si: null };
+  state.sel = { mi: Math.min(mi, materials().length - 1), si: null, ebi: null };
   render();
 }
 function onAddSheet(mi) {
@@ -331,12 +404,24 @@ function onAddSheet(mi) {
   m.sheets = m.sheets || [];
   m.sheets.push({ name: 'Sheet ' + (m.sheets.length + 1), length: 2440, width: 1220, form: 'Rectangular', cost: 0, rotation: 'all', separation: 3, trim: 10, comment: '' });
   expanded.add(m);
-  state.sel = { mi, si: m.sheets.length - 1 };
+  state.sel = { mi, si: m.sheets.length - 1, ebi: null };
   render();
 }
 function onDeleteSheet(mi, si) {
   materials()[mi].sheets.splice(si, 1);
-  state.sel = { mi, si: null };
+  state.sel = { mi, si: null, ebi: null };
+  render();
+}
+function onAddEdgeband() {
+  edgebands().push({ name: 'Edgeband ' + (edgebands().length + 1), thickness: 1,
+                     width: 22, cost: 0, color: nextColor(), comment: '' });
+  ebOpen = true;
+  state.sel = { mi: -1, si: null, ebi: edgebands().length - 1 };
+  render();
+}
+function onDeleteEdgeband(ebi) {
+  edgebands().splice(ebi, 1);
+  state.sel = { mi: -1, si: null, ebi: edgebands().length ? Math.min(ebi, edgebands().length - 1) : null };
   render();
 }
 
@@ -344,12 +429,12 @@ function onDeleteSheet(mi, si) {
 // Save / Export / Import
 // ---------------------------------------------------------------------------
 async function onSave() {
-  const r = await bridge('save', { materials: materials() });
-  if (r && r.ok) toast('Saved ' + r.count + ' material(s).');
+  const r = await bridge('save', { materials: materials(), edgebands: edgebands() });
+  if (r && r.ok) toast('Saved ' + r.count + ' material(s) · ' + (r.bands || 0) + ' edgeband(s).');
   else toast('Save failed' + (r && r.error ? ': ' + r.error : ''), true);
 }
 async function onExport() {
-  const r = await bridge('export', { materials: materials() });
+  const r = await bridge('export', { materials: materials(), edgebands: edgebands() });
   if (r && r.ok) toast('Exported to ' + r.path);
   else if (r && r.cancelled) { /* no-op */ }
   else toast('Export failed' + (r && r.error ? ': ' + r.error : ''), true);
@@ -358,10 +443,14 @@ async function onImport() {
   const r = await bridge('import', {});
   if (r && r.ok && Array.isArray(r.materials)) {
     state.library.materials = r.materials;
-    state.sel = { mi: r.materials.length ? 0 : -1, si: null };
+    // edgebands null => the imported file had no band section; keep the current ones.
+    if (Array.isArray(r.edgebands)) state.library.edgebands = r.edgebands;
+    state.sel = { mi: r.materials.length ? 0 : -1, si: null, ebi: null };
     if (r.materials.length) expanded.add(r.materials[0]);
     render();
-    toast('Imported ' + r.materials.length + ' material(s). Click Save to keep them.');
+    toast('Imported ' + r.materials.length + ' material(s)' +
+      (Array.isArray(r.edgebands) ? ' · ' + r.edgebands.length + ' edgeband(s)' : '') +
+      '. Click Save to keep them.');
   } else if (r && r.cancelled) { /* no-op */ }
   else toast('Import failed' + (r && r.error ? ': ' + r.error : ''), true);
 }

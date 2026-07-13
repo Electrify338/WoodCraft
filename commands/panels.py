@@ -113,6 +113,59 @@ def looks_like_panel(dims, min_t=3.0, max_t=40.0, min_ratio=4.0):
     return (W / T) >= min_ratio
 
 
+# ---------------------------------------------------------------------------
+# Edgebanding (WC_EDGEBAND face attributes → per-component band lengths)
+# ---------------------------------------------------------------------------
+def face_edgeband_length_mm(face, thickness_mm=None):
+    """Banding length ONE face needs, in millimetres: face area ÷ panel thickness.
+    Exact for a rectangular edge face (T × L) and arc-true for a curved edge (a
+    band follows the surface, so a bent front needs its arc length — the bounding
+    box would undersell it). When the thickness is unknown, fall back to the
+    face's largest bounding-box extent (right for straight edges only)."""
+    try:
+        area_mm2 = face.area * 100.0        # Fusion areas are cm²
+    except Exception:
+        return 0.0
+    if thickness_mm and thickness_mm > 0:
+        return area_mm2 / thickness_mm
+    try:
+        bb = face.boundingBox
+        return max(bb.maxPoint.x - bb.minPoint.x,
+                   bb.maxPoint.y - bb.minPoint.y,
+                   bb.maxPoint.z - bb.minPoint.z) * 10.0
+    except Exception:
+        return 0.0
+
+
+def component_edgebands(component):
+    """{band name: total banding length mm} over this component's tagged faces —
+    ONE instance's worth (callers multiply by occurrence quantity). Empty dict
+    when nothing is tagged. Reads the WC_EDGEBAND face attributes the Edgeband
+    command stamped; lengths divide each face's area by the panel thickness so
+    curved edges count their real arc length."""
+    dims = panel_dims_mm(component)
+    thickness = dims[2] if dims else None
+    out = {}
+    try:
+        bodies = component.bRepBodies
+    except Exception:
+        return out
+    for bi in range(bodies.count):
+        try:
+            faces = bodies.item(bi).faces
+        except Exception:
+            continue
+        for fi in range(faces.count):
+            face = faces.item(fi)
+            band = wc_attrs.get_edgeband(face)
+            if not band:
+                continue
+            length = face_edgeband_length_mm(face, thickness)
+            if length > 0:
+                out[band] = out.get(band, 0.0) + length
+    return out
+
+
 def _priced_hardware(component):
     """True when this component counts as ONE priced purchased unit whose price
     covers everything inside it: hardware, with its own cost, bought as a pack.
@@ -314,6 +367,11 @@ def build_tree(design, root=None):
     component is included — assemblies (cabinets), classified panels/hardware, and
     unclassified parts alike — so the structure is complete regardless of tagging.
 
+    Each node also carries `edgebands`: [{name, length_mm, cost_per_m, cost}] for
+    ONE instance — the summed lengths of its WC_EDGEBAND-tagged faces, priced from
+    the Sheets library's band catalogue (cost_per_m/cost None when the band is
+    unpriced or no longer in the library). Empty list when nothing is tagged.
+
     Costing (`unit_cost` = one instance, `cost` = unit_cost × qty, both None when
     unpriced; `cost_kind` says where the number came from):
       'set'      hardware with its own WC_COST — a purchased unit. Its descendants
@@ -329,7 +387,9 @@ def build_tree(design, root=None):
         return []
     root = root or design.rootComponent
 
-    materials = sheets_store.load()['materials']
+    library = sheets_store.load()
+    materials = library['materials']
+    band_catalogue = library['edgebands']
     waste_mult = 1.0 + settings_store.get_waste_percent() / 100.0
     rate_cache = {}   # (material lower, thickness rounded) -> rate or None
 
@@ -339,6 +399,19 @@ def build_tree(design, root=None):
             m = sheets_store.find_material(materials, material_name, thickness)
             rate_cache[key] = sheets_store.cost_rate_per_m2(m)
         return rate_cache[key]
+
+    def edgeband_rows(component):
+        """[{name, length_mm, cost_per_m, cost}] for ONE instance of `component`,
+        priced from the band catalogue. The waste factor applies like it does to
+        panels (banding has offcuts at every edge)."""
+        rows = []
+        for name, length_mm in sorted(component_edgebands(component).items()):
+            rate = sheets_store.edgeband_cost_per_m(
+                sheets_store.find_edgeband(band_catalogue, name))
+            cost = length_mm / 1000.0 * rate * waste_mult if rate is not None else None
+            rows.append({'name': name, 'length_mm': round(length_mm, 1),
+                         'cost_per_m': rate, 'cost': cost})
+        return rows
 
     def absorb(nodes):
         for n in nodes:
@@ -372,6 +445,7 @@ def build_tree(design, root=None):
             'part_number': _component_part_number(component),
             'L': dims[0], 'W': dims[1], 'T': dims[2],
             'qty': qty,
+            'edgebands': edgeband_rows(component),
             'children': children,
         }
         unit, kind = cost_for(component, node, children)
@@ -441,14 +515,20 @@ def estimate_panel_unit_cost(material_name, thickness, L_mm, W_mm,
 
 def tree_cost_totals(nodes):
     """Bill split for a build_tree() result:
-    {'panels_est', 'hardware', 'grand', 'unpriced_panels'} — panels_est is the
-    sheet-derived estimate, hardware the entered purchase costs, grand their sum;
-    unpriced_panels counts physical panels no rate could be found for (so a low
-    total can't silently mean 'panels missing from the bill').
+    {'panels_est', 'hardware', 'edgeband', 'grand', 'unpriced_panels',
+     'edgebands': [{name, length_mm, cost|None}]} — panels_est is the sheet-derived
+    estimate, hardware the entered purchase costs, edgeband the priced banding,
+    grand their sum; unpriced_panels counts physical panels no rate could be found
+    for (so a low total can't silently mean 'panels missing from the bill'). The
+    edgebands list totals every tagged band BY TYPE across the design — an unpriced
+    band still reports its length with cost None, so the metres to buy are always
+    complete even when the library has no price yet.
 
     Node costs are relative to ONE instance of their parent, so the walk carries
     the multiplier of enclosing quantities (2 cabinets × 4 screws = 8 screws)."""
-    totals = {'panels_est': 0.0, 'hardware': 0.0, 'grand': 0.0, 'unpriced_panels': 0}
+    totals = {'panels_est': 0.0, 'hardware': 0.0, 'edgeband': 0.0, 'grand': 0.0,
+              'unpriced_panels': 0, 'edgebands': []}
+    bands = {}   # name -> {'name', 'length_mm', 'cost', 'priced'}
 
     def walk(ns, mult):
         for n in ns:
@@ -456,7 +536,15 @@ def tree_cost_totals(nodes):
             kind = n.get('cost_kind')
             if kind == 'set':
                 totals['hardware'] += n['unit_cost'] * eff_qty
-                continue    # descendants are absorbed in this price
+                continue    # descendants (and their banding) are in this price
+            for b in n.get('edgebands') or []:
+                agg = bands.setdefault(b['name'], {'name': b['name'], 'length_mm': 0.0,
+                                                   'cost': 0.0, 'priced': True})
+                agg['length_mm'] += b['length_mm'] * eff_qty
+                if b['cost'] is not None:
+                    agg['cost'] += b['cost'] * eff_qty
+                else:
+                    agg['priced'] = False
             if kind == 'est':
                 totals['panels_est'] += n['unit_cost'] * eff_qty
             elif n['type'] == 'Panel' and kind is None:
@@ -464,7 +552,15 @@ def tree_cost_totals(nodes):
             walk(n['children'], eff_qty)
 
     walk(nodes, 1)
-    totals['grand'] = totals['panels_est'] + totals['hardware']
+    for name in sorted(bands, key=str.lower):
+        agg = bands[name]
+        cost = agg['cost'] if agg['priced'] else None
+        totals['edgebands'].append({'name': name,
+                                    'length_mm': round(agg['length_mm'], 1),
+                                    'cost': cost})
+        if cost:
+            totals['edgeband'] += cost
+    totals['grand'] = totals['panels_est'] + totals['hardware'] + totals['edgeband']
     return totals
 
 

@@ -150,14 +150,14 @@ def _payload():
     }
 
 
-def _export(materials):
+def _export(materials, edgebands):
     dlg = ui.createFileDialog()
     dlg.title = 'Export WoodCraft stock library'
     dlg.filter = 'JSON files (*.json)'
     dlg.initialFilename = 'woodcraft_sheets.json'
     if dlg.showSave() != adsk.core.DialogResults.DialogOK:
         return {'ok': False, 'cancelled': True}
-    sheets_store.write_path(dlg.filename, materials)
+    sheets_store.write_path(dlg.filename, materials, edgebands)
     return {'ok': True, 'path': dlg.filename}
 
 
@@ -168,10 +168,13 @@ def _import():
     if dlg.showOpen() != adsk.core.DialogResults.DialogOK:
         return {'ok': False, 'cancelled': True}
     try:
-        materials = sheets_store.read_path(dlg.filename)
+        library = sheets_store.read_path(dlg.filename)
     except Exception as e:
         return {'ok': False, 'error': str(e)}
-    return {'ok': True, 'materials': materials, 'path': dlg.filename}
+    # edgebands is None when the imported file predates the band section — the
+    # palette then keeps its current bands instead of clearing them.
+    return {'ok': True, 'materials': library['materials'],
+            'edgebands': library['edgebands'], 'path': dlg.filename}
 
 
 def palette_incoming(args: adsk.core.HTMLEventArgs):
@@ -186,11 +189,15 @@ def palette_incoming(args: adsk.core.HTMLEventArgs):
         if action == 'ready':
             result = _payload()
         elif action == 'save':
-            saved = sheets_store.save(data.get('materials', []))
-            result = {'ok': True, 'count': len(saved),
+            # edgebands absent from the payload (None) → sheets_store preserves
+            # the on-disk catalogue rather than wiping it.
+            saved = sheets_store.save(data.get('materials', []),
+                                      data.get('edgebands'))
+            result = {'ok': True, 'count': len(saved['materials']),
+                      'bands': len(saved['edgebands']),
                       'path': sheets_store.library_path()}
         elif action == 'export':
-            result = _export(data.get('materials', []))
+            result = _export(data.get('materials', []), data.get('edgebands'))
         elif action == 'import':
             result = _import()
         else:

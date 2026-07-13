@@ -1,4 +1,4 @@
-"""Global stock-sheet library for WoodCraft — Fusion-style Material → Sheets.
+"""Global stock library for WoodCraft — Fusion-style Material → Sheets, plus edgebands.
 
 Mirrors how Fusion's Nesting "Process Material Library" is organised: a **material**
 (its Fusion material name + thickness + category + a display colour) holds one or more
@@ -6,18 +6,25 @@ Mirrors how Fusion's Nesting "Process Material Library" is organised: a **materi
 nesting params. Cut List & Nest matches every panel to the material of its Fusion
 material name + thickness, then nests it on a chosen sheet.
 
+The same file also carries the **edgeband** catalogue: the banding rolls (name, band
+thickness, roll width, cost per metre) the Edgeband command offers and the BOM prices
+tagged edges against. One JSON file = the whole purchasable stock.
+
 The library is a single portable JSON file shared across designs (so you define your
 stock once, and can hand the file to someone else). No Fusion API is used here, so
 this module is unit-testable with plain Python like `nesting.py`.
 
-Library shape (sizes in millimetres):
+Library shape (sizes in millimetres; edgeband cost is per METRE of banding):
     {"materials": [
         {"name": "MDF Medium Density Fiberboard", "thickness": 18.0,
          "category": "Boards", "color": "#C9A86A", "comment": "",
          "sheets": [
             {"name": "Standard", "length": 2440, "width": 1220, "form": "Rectangular",
              "cost": 0.0, "rotation": "all", "separation": 3.0, "trim": 10.0,
-             "comment": ""}]}]}
+             "comment": ""}]}],
+     "edgebands": [
+        {"name": "PVC White 0.8", "thickness": 0.8, "width": 22.0,
+         "cost": 0.0, "color": "#F2F2F2", "comment": ""}]}
 
 `rotation` is one of: 'all' | 'none' | '90_270' | '180' (only 'all'/'90_270' let our
 guillotine packer rotate a part 90°; '180' doesn't change a rectangle's footprint).
@@ -44,6 +51,17 @@ DEFAULT_LIBRARY = {
                      "separation": 3.0, "trim": 10.0, "comment": ""}]},
     ]
 }
+
+# Seeded when the library has no edgeband section yet (fresh install or a file
+# saved by a pre-edgeband version) — three common banding types to edit/price.
+DEFAULT_EDGEBANDS = [
+    {"name": "PVC White 0.8 mm", "thickness": 0.8, "width": 22.0, "cost": 0.0,
+     "color": "#F2F2F2", "comment": ""},
+    {"name": "PVC Oak 2 mm", "thickness": 2.0, "width": 22.0, "cost": 0.0,
+     "color": "#C9A86A", "comment": ""},
+    {"name": "ABS Anthracite 1 mm", "thickness": 1.0, "width": 22.0, "cost": 0.0,
+     "color": "#4A4A4A", "comment": ""},
+]
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +149,42 @@ def clean_materials(rows):
     return out
 
 
+def normalize_edgeband(row):
+    """Coerce a raw edgeband into a clean dict, or None if unusable. A band only
+    NEEDS a name — the Edgeband command tags faces by name; thickness/width/cost
+    are catalogue data the BOM uses when present. `cost` is per METRE."""
+    if not isinstance(row, dict):
+        return None
+    name = str(row.get("name", "")).strip()
+    if not name:
+        return None
+    return {
+        "name": name,
+        "thickness": round(max(0.0, _num(row.get("thickness"))), 3),
+        "width": round(max(0.0, _num(row.get("width"))), 3),
+        "cost": round(max(0.0, _num(row.get("cost"))), 4),
+        "color": (str(row.get("color", "")).strip() or DEFAULT_COLOR),
+        "comment": str(row.get("comment", "") or ""),
+    }
+
+
+def clean_edgebands(rows):
+    """Normalize a list of edgebands, dropping unusable ones and duplicate names
+    (first wins — face attributes reference bands BY NAME, so it must be unique)."""
+    out = []
+    seen = set()
+    for row in rows or []:
+        norm = normalize_edgeband(row)
+        if not norm:
+            continue
+        key = norm["name"].lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(norm)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Migration from the old flat format
 # ---------------------------------------------------------------------------
@@ -173,49 +227,74 @@ def _materials_from_data(data):
     return []
 
 
+def _edgebands_from_data(data):
+    """Cleaned edgebands from an on-disk shape, or None when the file predates the
+    edgeband section entirely. The distinction matters: an absent key means 'seed
+    the defaults', while a present-but-empty list means the user deleted them all
+    on purpose and must stay empty."""
+    if isinstance(data, dict) and "edgebands" in data:
+        return clean_edgebands(data["edgebands"])
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Load / save
 # ---------------------------------------------------------------------------
 def load():
-    """Return {'materials': [...]} from the global library, migrating the old flat
-    format if needed. Missing/corrupt/empty → a copy of DEFAULT_LIBRARY. Never
-    raises and never writes."""
+    """Return {'materials': [...], 'edgebands': [...]} from the global library,
+    migrating the old flat format if needed. Missing/corrupt/empty → defaults
+    (DEFAULT_LIBRARY materials + DEFAULT_EDGEBANDS). Never raises, never writes."""
     try:
         with open(library_path(), "r", encoding="utf-8") as f:
             data = json.load(f)
         materials = _materials_from_data(data)
         if materials:
-            return {"materials": materials}
+            edgebands = _edgebands_from_data(data)
+            if edgebands is None:
+                edgebands = clean_edgebands(DEFAULT_EDGEBANDS)
+            return {"materials": materials, "edgebands": edgebands}
     except Exception:
         pass
-    return {"materials": clean_materials(DEFAULT_LIBRARY["materials"])}
+    return {"materials": clean_materials(DEFAULT_LIBRARY["materials"]),
+            "edgebands": clean_edgebands(DEFAULT_EDGEBANDS)}
 
 
-def save(materials):
-    """Write the (cleaned) materials list to the global library file, creating the
-    folder if needed. Returns the list actually written."""
-    cleaned = clean_materials(materials)
+def save(materials, edgebands=None):
+    """Write the (cleaned) library to the global file, creating the folder if
+    needed. `edgebands=None` preserves whatever the file already holds (so a
+    caller that only edits materials can't wipe the band catalogue). Returns the
+    {'materials', 'edgebands'} dict actually written."""
+    if edgebands is None:
+        edgebands = load()["edgebands"]
+    cleaned = {"materials": clean_materials(materials),
+               "edgebands": clean_edgebands(edgebands)}
     os.makedirs(library_dir(), exist_ok=True)
     with open(library_path(), "w", encoding="utf-8") as f:
-        json.dump({"materials": cleaned}, f, indent=2)
+        json.dump(cleaned, f, indent=2)
     return cleaned
 
 
-def write_path(path, materials):
-    """Export: write (cleaned) materials to an arbitrary path. Returns the list."""
-    cleaned = clean_materials(materials)
+def write_path(path, materials, edgebands=None):
+    """Export: write a (cleaned) library to an arbitrary path. `edgebands=None`
+    exports the on-disk catalogue so a shared file is complete. Returns the dict."""
+    if edgebands is None:
+        edgebands = load()["edgebands"]
+    cleaned = {"materials": clean_materials(materials),
+               "edgebands": clean_edgebands(edgebands)}
     with open(path, "w", encoding="utf-8") as f:
-        json.dump({"materials": cleaned}, f, indent=2)
+        json.dump(cleaned, f, indent=2)
     return cleaned
 
 
 def read_path(path):
     """Import: read + validate a library from an arbitrary path (any supported
-    shape). Returns a cleaned materials list (may be empty). Raises on unreadable
-    file / invalid JSON so the caller can report it."""
+    shape). Returns {'materials': [...], 'edgebands': [...] | None} — edgebands
+    None when the file has no band section (caller keeps its current ones).
+    Raises on unreadable file / invalid JSON so the caller can report it."""
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
-    return _materials_from_data(data)
+    return {"materials": _materials_from_data(data),
+            "edgebands": _edgebands_from_data(data)}
 
 
 # ---------------------------------------------------------------------------
@@ -254,6 +333,27 @@ def cost_rate_per_m2(material):
     if not rates:
         return None
     return sum(rates) / len(rates)
+
+
+def find_edgeband(edgebands, name):
+    """The edgeband whose name matches (trimmed, case-insensitive), or None.
+    Face attributes store the band NAME, so this is the report-time join."""
+    want = str(name or "").strip().lower()
+    if not want:
+        return None
+    for band in edgebands or []:
+        if str(band.get("name", "")).strip().lower() == want:
+            return band
+    return None
+
+
+def edgeband_cost_per_m(band):
+    """This band's cost per metre, or None when the band is missing/unpriced —
+    None (not 0) so reports can flag 'tagged but unpriced' edges explicitly."""
+    if not band:
+        return None
+    cost = _num(band.get("cost"))
+    return cost if cost > 0 else None
 
 
 def rotation_allows_rotation(code):

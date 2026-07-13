@@ -11,6 +11,7 @@
   --panelType: #6E93B8;
   --hwType: #B07AA1;
   --asmType: #9aa0a8;
+  --ebType: #E8944A;       /* edgeband orange */
 }
 
 * { box-sizing: border-box; }
@@ -89,8 +90,21 @@ main { flex: 1; min-height: 0; overflow: auto; }
 .badge.Panel { color: var(--accent); }
 .badge.Hardware { color: var(--hwType); }
 .badge.Part { color: var(--panelType); }
+.badge.Edgeband { color: var(--ebType); }
+
+/* Edgeband detail sub-rows (under an expanded panel) read as secondary. */
+.row.ebrow { background: #ffffff06; }
+.row.ebrow .nm { color: var(--muted); }
 
 .empty { color: var(--muted); text-align: center; margin-top: 40px; }
+
+/* Edgebanding purchase line (bar under the summary) + per-row EB badge */
+.ebline b { color: var(--text); }
+.ebtag {
+  display: inline-block; flex: none; font-size: 10px; padding: 0 5px;
+  border-radius: 8px; border: 1px solid var(--accent); color: var(--accent);
+  line-height: 1.5; cursor: default;
+}
 
 .path { color: var(--muted); font-size: 11px; }
 footer { padding: 5px 12px; border-top: 1px solid var(--line); background: var(--panel); }

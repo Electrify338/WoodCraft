@@ -177,8 +177,9 @@ def _payload():
 def _xlsx_rows(tree):
     """Flatten the tree into (cells, outline_level) rows for xlsx_writer. Leaf dims
     are numeric; assemblies leave dims blank. The name is space-indented by depth so
-    the hierarchy reads even with grouping collapsed. Ends with the billed-BOM
-    totals block (panels estimate / hardware / grand total)."""
+    the hierarchy reads even with grouping collapsed. Ends with the edgebanding
+    purchase list (total metres + cost per band type across the design) and the
+    billed-BOM totals block (panels estimate / hardware / edgeband / grand total)."""
     rows = []
     for node, level in panels.flatten_tree(tree):
         has_dims = node['type'] != 'Assembly' and node['L'] > 0
@@ -199,8 +200,26 @@ def _xlsx_rows(tree):
         ], level))
 
     totals = panels.tree_cost_totals(tree)
+    blank = [''] * len(XLSX_HEADERS)
+
+    # Edgebanding purchase list — one row per band type. Length lands in the
+    # Length (mm) column; an unpriced band still lists its metres so the shopping
+    # list stays complete.
+    if totals['edgebands']:
+        rows.append((blank, 0))
+        for band in totals['edgebands']:
+            cells = list(blank)
+            cells[1] = f"Edgeband — {band['name']}"
+            cells[2] = 'Edgeband'
+            cells[3] = round(band['length_mm'], 0)
+            cells[7] = f"{band['length_mm'] / 1000.0:.2f} m"
+            if band['cost'] is not None:
+                cells[-1] = round(band['cost'], 2)
+            else:
+                cells[8] = 'no cost/m in the Sheets library'
+            rows.append((cells, 0))
+
     if totals['grand'] or totals['unpriced_panels']:
-        blank = [''] * len(XLSX_HEADERS)
         def total_row(label, value):
             cells = list(blank)
             cells[1] = label
@@ -209,6 +228,8 @@ def _xlsx_rows(tree):
         rows.append((blank, 0))
         rows.append(total_row('Panels (estimated)', totals['panels_est']))
         rows.append(total_row('Hardware', totals['hardware']))
+        if totals['edgebands']:
+            rows.append(total_row('Edgeband (estimated)', totals['edgeband']))
         rows.append(total_row('TOTAL', totals['grand']))
         if totals['unpriced_panels']:
             cells = list(blank)

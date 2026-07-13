@@ -94,6 +94,24 @@ def set_cost(component, cost) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Edgeband (a FACE attribute — the entity passed in is a BRepFace)
+# ---------------------------------------------------------------------------
+def get_edgeband(face, default=None):
+    """Name of the edgeband assigned to this face, or `default` if untagged."""
+    return get_value(face, config.WC_EDGEBAND, default)
+
+
+def set_edgeband(face, band_name) -> bool:
+    """Tag a face with an edgeband by its Sheets-library name."""
+    return set_value(face, config.WC_EDGEBAND, band_name)
+
+
+def remove_edgeband(face) -> bool:
+    """Strip the edgeband tag from a face. True if one was removed."""
+    return remove_value(face, config.WC_EDGEBAND)
+
+
+# ---------------------------------------------------------------------------
 # Hardware purchase mode (pack vs separate parts)
 # ---------------------------------------------------------------------------
 def get_purchase_mode(component):

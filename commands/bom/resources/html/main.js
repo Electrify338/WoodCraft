@@ -47,6 +47,7 @@ function h(tag, attrs, ...kids) {
 
 function fmt(n) { const v = parseFloat(n); return isNaN(v) ? '0' : (Math.round(v * 10) / 10).toString(); }
 function money(n) { const v = parseFloat(n); return isNaN(v) ? '' : v.toFixed(2); }
+function metres(mm) { const v = parseFloat(mm); return isNaN(v) ? '' : (v / 1000).toFixed(2) + ' m'; }
 
 // ---------------------------------------------------------------------------
 // Init
@@ -86,7 +87,10 @@ async function onExport() {
 function collapsedClear() { state.tree.forEach(walkUncollapse); }
 function walkUncollapse(n) { collapsed.delete(n); (n.children || []).forEach(walkUncollapse); }
 function collapseAll(nodes) {
-  nodes.forEach(n => { if (n.children && n.children.length) { collapsed.add(n); collapseAll(n.children); } });
+  nodes.forEach(n => {
+    if ((n.children && n.children.length) || (n.edgebands && n.edgebands.length)) collapsed.add(n);
+    if (n.children && n.children.length) collapseAll(n.children);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -107,12 +111,31 @@ function render() {
     if (t && (t.grand || t.unpriced_panels)) {
       sum.append(h('span', {}, '  ·  panels '), h('b', { class: 'est' }, '≈ ' + money(t.panels_est)));
       sum.append(h('span', {}, '  ·  hardware '), h('b', {}, money(t.hardware)));
+      if (t.edgeband) sum.append(h('span', {}, '  ·  edgeband '), h('b', { class: 'est' }, '≈ ' + money(t.edgeband)));
       sum.append(h('span', {}, '  ·  total '), h('b', {}, '≈ ' + money(t.grand)));
       if (t.unpriced_panels) {
         sum.append(h('span', { class: 'est', title: 'No sheet cost found for their material in the Sheets library' },
           '  ·  ' + t.unpriced_panels + ' panel(s) unpriced'));
       }
     }
+  }
+
+  // Edgebanding purchase line: total metres (and cost) per band type, design-wide.
+  const ebBar = document.getElementById('ebBar');
+  ebBar.innerHTML = '';
+  const bands = (state.totals && state.totals.edgebands) || [];
+  if (bands.length) {
+    ebBar.className = 'bar ebline';
+    ebBar.append(h('span', {}, 'Edgebanding: '));
+    bands.forEach((b, i) => {
+      if (i) ebBar.append(h('span', {}, '  ·  '));
+      ebBar.append(h('b', {}, b.name), h('span', {}, ' ' + metres(b.length_mm)));
+      ebBar.append(b.cost != null
+        ? h('span', { class: 'est', title: 'Length × cost/m from the Sheets library + waste factor' }, ' ≈ ' + money(b.cost))
+        : h('span', { class: 'est', title: 'No cost per metre set for this band in the Sheets library' }, ' (unpriced)'));
+    });
+  } else {
+    ebBar.className = 'bar ebline hidden';
   }
   document.getElementById('pathNote').textContent =
     'Panel costs are estimates: raw area × average sheet cost/m² + the waste factor from Settings. ' +
@@ -133,9 +156,40 @@ function countRows(nodes) { return nodes.reduce((a, n) => a + 1 + countRows(n.ch
 function renderRows(box, nodes, level) {
   nodes.forEach(node => {
     const hasChildren = node.children && node.children.length;
+    // Rows with edgebands expand too: their banding renders as detail sub-rows.
+    const expandable = hasChildren || (node.edgebands && node.edgebands.length);
     const open = !collapsed.has(node);
-    box.append(rowEl(node, level, hasChildren, open));
-    if (hasChildren && open) renderRows(box, node.children, level + 1);
+    box.append(rowEl(node, level, expandable, open));
+    if (expandable && open) {
+      renderEdgebandRows(box, node, level + 1);
+      if (hasChildren) renderRows(box, node.children, level + 1);
+    }
+  });
+}
+
+// Per-panel edgeband detail rows (shown when the panel row is expanded): one row
+// per band with the metres per piece, the library rate, and the row total.
+function renderEdgebandRows(box, node, level) {
+  (node.edgebands || []).forEach(b => {
+    const caret = h('span', { class: 'caret leaf' }, '•');
+    caret.style.marginLeft = (level * 16) + 'px';
+    const unitTxt = b.cost != null ? money(b.cost) : '';
+    const total = b.cost != null ? b.cost * node.qty : null;
+    box.append(h('div', { class: 'row grid ebrow' },
+      h('span', { class: 'c-no' }, ''),
+      h('span', { class: 'c-name' }, caret, h('span', { class: 'nm', title: b.name }, b.name)),
+      h('span', { class: 'c-type' }, h('span', { class: 'badge Edgeband' }, 'Edgeband')),
+      h('span', { class: 'c-dims', title: 'Banding length per piece' }, metres(b.length_mm)),
+      h('span', { class: 'c-mat' + (b.cost_per_m != null ? '' : ' est'),
+                  title: b.cost_per_m != null ? 'Cost per metre from the Sheets library' : 'No cost per metre set in the Sheets library' },
+        b.cost_per_m != null ? money(b.cost_per_m) + ' /m' : 'unpriced'),
+      h('span', { class: 'c-qty' }, String(node.qty)),
+      h('span', { class: 'c-part muted' }, '—'),
+      h('span', { class: 'c-unit' + (unitTxt ? '' : ' muted'), title: unitTxt ? 'Banding cost per piece (incl. waste factor)' : '' }, unitTxt || '—'),
+      h('span', { class: 'c-cost' + (total != null ? ' est' : ' muted'),
+                  title: total != null ? 'Estimated: metres × cost/m + waste factor' : '' },
+        total != null ? '≈ ' + money(total) : '—')
+    ));
   });
 }
 
@@ -168,9 +222,15 @@ function rowEl(node, level, hasChildren, open) {
     if (kind === 'rollup') costTitle = 'Sum of the items inside';
   }
 
+  // EB badge on rows with edgeband-tagged faces; the tooltip lists band + metres.
+  const ebs = node.edgebands || [];
+  const ebTag = ebs.length
+    ? h('span', { class: 'ebtag', title: 'Edgeband (per piece):\n' + ebs.map(b => b.name + ' — ' + metres(b.length_mm)).join('\n') }, 'EB')
+    : null;
+
   return h('div', { class: 'row grid' + (isAsm ? ' asm' : '') },
     h('span', { class: 'c-no' }, node.no || ''),
-    h('span', { class: 'c-name' }, caret, h('span', { class: 'nm', title: node.name }, node.name)),
+    h('span', { class: 'c-name' }, caret, h('span', { class: 'nm', title: node.name }, node.name), ebTag),
     h('span', { class: 'c-type' }, h('span', { class: 'badge ' + node.type }, node.type)),
     h('span', { class: 'c-dims' + (dims ? '' : ' muted') }, dims || '—'),
     h('span', { class: 'c-mat', title: mat }, mat || '—'),
