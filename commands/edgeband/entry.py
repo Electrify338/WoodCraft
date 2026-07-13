@@ -48,6 +48,17 @@ ICON_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'resource
 
 SEL_ID = 'eb_faces'
 BAND_ID = 'eb_band'
+SCOPE_ID = 'eb_scope'
+EXPOSED_ID = 'eb_exposed'
+DETECT_ID = 'eb_detect'
+STATUS_ID = 'eb_status'
+
+# "Only exposed edges" probes each edge face from points just OUTSIDE it (along
+# the face normal); a probe landing INSIDE another panel body means the face is
+# butted against it (a joint). Probing — rather than minimum distance — is what
+# keeps corner-line contact (two exposed front edges meeting at an arris) from
+# being mistaken for a joint. Fusion's internal unit is cm.
+PROBE_OFFSET_CM = 0.02    # 0.2 mm outside the face
 
 REMOVE_LABEL = '— Remove edgeband —'
 
@@ -59,6 +70,11 @@ BASE_APPEARANCE = 'Paint - Enamel Glossy (Yellow)'
 # Rebuilt on every dialog open from the Sheets library: [(label, band dict|None)].
 # None = the remove entry. Module state is safe: one command dialog at a time.
 band_choices = []
+
+# Auto-detected face proxies that could NOT be added to the selection input
+# (Fusion only lets addSelection reach the ACTIVE input, and focus handoff can
+# fail). They are banded on OK anyway; cleared on every Detect and on destroy.
+detected_stash = []
 
 local_handlers = []
 
@@ -95,9 +111,41 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
 
     sel = inputs.addSelectionInput(
         SEL_ID, 'Edge faces',
-        'Select the panel edge faces to band (the thin thickness-side strips)')
+        'Select the panel edge faces to band (the thin thickness-side strips), '
+        'or use Auto-detect below')
     sel.addSelectionFilter('Faces')
-    sel.setSelectionLimits(1, 0)
+    # Minimum 0, NOT 1: Fusion gates OK on selection minimums before our
+    # validateInputs ever runs, and auto-detected faces may live only in
+    # detected_stash (when addSelection refuses them) — validate handles the
+    # "needs at least one face somewhere" rule instead.
+    sel.setSelectionLimits(0, 0)
+
+    # --- Auto-detect group: pick a cabinet (or nothing = whole design), click
+    # Detect, and every panel edge face under it is added to the selection.
+    group = inputs.addGroupCommandInput('eb_auto_group', 'Auto-detect')
+    group.isExpanded = True
+    gi = group.children
+
+    scope = gi.addSelectionInput(
+        SCOPE_ID, 'Cabinet / scope',
+        'Limit detection to these assemblies or components. Leave empty to scan '
+        'every panel in the design.')
+    scope.addSelectionFilter('Occurrences')
+    scope.setSelectionLimits(0, 0)
+
+    exposed = gi.addBoolValueInput(EXPOSED_ID, 'Only exposed edges', True, '', True)
+    exposed.tooltip = ('Skip edge faces that touch another panel (butt joints — '
+                       'gables, backs). Off = collect every edge face.')
+
+    detect = gi.addBoolValueInput(DETECT_ID, 'Detect edge faces', False, '', False)
+    detect.text = 'Detect'
+    detect.tooltip = ('Find the edge (thickness-side) faces of every panel in the '
+                      'scope and add them to the selection. Drilled holes are '
+                      'skipped; rounded corners are included. You can still '
+                      'Ctrl-click to drop faces you don\'t want banded.')
+
+    status = gi.addTextBoxCommandInput(STATUS_ID, '', '', 2, True)
+    status.isFullWidth = True
 
     global band_choices
     band_choices = [(_band_label(b), b)
@@ -112,6 +160,8 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
                   'where each carries its cost per metre for the BOM.')
 
     futil.add_handler(args.command.execute, command_execute, local_handlers=local_handlers)
+    futil.add_handler(args.command.inputChanged, command_input_changed,
+                      local_handlers=local_handlers)
     futil.add_handler(args.command.validateInputs, command_validate_input,
                       local_handlers=local_handlers)
     futil.add_handler(args.command.destroy, command_destroy, local_handlers=local_handlers)
@@ -188,9 +238,243 @@ def _native_face(entity):
         return face
 
 
+# ---------------------------------------------------------------------------
+# Auto-detect (one-shot Detect button — never reacts to the selection input
+# itself, per the selection-reentrancy rule)
+# ---------------------------------------------------------------------------
+def _panel_occurrences(design, scope_occs):
+    """[(occurrence|None, component)] for every classified panel under the scope
+    occurrences (or the whole design when scope is empty). Occurrences are root-
+    context proxies, so their faces/bodies proxy into world space. None stands
+    for the root component itself (a part document)."""
+    result = []
+    seen = set()    # occurrence fullPathName / root marker — guards double scope picks
+
+    def add(occ, comp):
+        key = getattr(occ, 'fullPathName', None) or '<root>'
+        if key in seen:
+            return
+        seen.add(key)
+        result.append((occ, comp))
+
+    def walk(occ):
+        comp = occ.component
+        if wc_attrs.is_panel(comp):
+            add(occ, comp)
+        try:
+            children = occ.childOccurrences
+        except Exception:
+            return
+        for i in range(children.count):
+            walk(children.item(i))
+
+    if scope_occs:
+        for occ in scope_occs:
+            walk(occ)
+    else:
+        root = design.rootComponent
+        if wc_attrs.is_panel(root):
+            add(None, root)
+        occs = root.occurrences
+        for i in range(occs.count):
+            walk(occs.item(i))
+    return result
+
+
+def _face_proxy(face, occ):
+    """`face` as seen in the root context (world space), or the native face for
+    a root-component panel."""
+    if occ is None:
+        return face
+    try:
+        return face.createForAssemblyContext(occ) or face
+    except Exception:
+        return face
+
+
+def _bbox_overlaps(a, b, tol_cm):
+    return (a.minPoint.x - tol_cm <= b.maxPoint.x and b.minPoint.x - tol_cm <= a.maxPoint.x
+            and a.minPoint.y - tol_cm <= b.maxPoint.y and b.minPoint.y - tol_cm <= a.maxPoint.y
+            and a.minPoint.z - tol_cm <= b.maxPoint.z and b.minPoint.z - tol_cm <= a.maxPoint.z)
+
+
+def _outward_probe_points(face):
+    """A few world-space points hovering PROBE_OFFSET_CM outside `face` (sampled
+    across its parametric range, offset along the outward normal — Fusion face
+    normals point out of the solid). Empty list when the evaluator won't play."""
+    pts = []
+    try:
+        ev = face.evaluator
+        rng = ev.parametricRange()
+        if not rng:
+            return pts
+        u0, v0 = rng.minPoint.x, rng.minPoint.y
+        u1, v1 = rng.maxPoint.x, rng.maxPoint.y
+        for fu, fv in ((0.5, 0.5), (0.25, 0.5), (0.75, 0.5), (0.5, 0.25), (0.5, 0.75)):
+            param = adsk.core.Point2D.create(u0 + (u1 - u0) * fu, v0 + (v1 - v0) * fv)
+            try:
+                if not ev.isParameterOnFace(param):
+                    continue    # hole/trim in the face — sample elsewhere
+            except Exception:
+                pass
+            ok, pt = ev.getPointAtParameter(param)
+            if not ok:
+                continue
+            ok, normal = ev.getNormalAtPoint(pt)
+            if not ok:
+                continue
+            normal.scaleBy(PROBE_OFFSET_CM)
+            pt.translateBy(normal)
+            pts.append(pt)
+    except Exception:
+        pass
+    return pts
+
+
+def _touches_another_panel(face_proxy, own_body_token, panel_bodies):
+    """True when this (world-space) face lies against any OTHER panel body — a
+    butt joint, so the edge isn't exposed. Probes points just outside the face:
+    inside a neighbour ⇒ joint. Corner-line contact (two exposed edges meeting
+    at an arris) probes into empty air, so it correctly stays bandable.
+    Bounding boxes prefilter which bodies pay for containment tests."""
+    probes = _outward_probe_points(face_proxy)
+    if not probes:
+        return False
+    try:
+        fbb = face_proxy.boundingBox
+    except Exception:
+        return False
+    inside = adsk.fusion.PointContainment.PointInsidePointContainment
+    for token, body in panel_bodies:
+        if token == own_body_token:
+            continue
+        try:
+            if not _bbox_overlaps(fbb, body.boundingBox, 2 * PROBE_OFFSET_CM):
+                continue
+            for pt in probes:
+                if body.pointContainment(pt) == inside:
+                    return True
+        except Exception:
+            continue
+    return False
+
+
+def _detect_edge_faces(inputs):
+    """Fill the faces selection with every bandable panel edge face in the scope.
+    Returns a status line for the dialog."""
+    design = adsk.fusion.Design.cast(app.activeProduct)
+    if not design:
+        return 'No active design.'
+    sel = inputs.itemById(SEL_ID)
+    scope_input = inputs.itemById(SCOPE_ID)
+    exposed_only = inputs.itemById(EXPOSED_ID).value
+
+    # Snapshot the scope BEFORE touching the faces selection: addSelection on one
+    # input can invalidate another input's live selection list.
+    scope_occs = []
+    for i in range(scope_input.selectionCount):
+        ent = scope_input.selection(i).entity
+        occ = adsk.fusion.Occurrence.cast(ent)
+        if occ:
+            scope_occs.append(occ)
+
+    instances = _panel_occurrences(design, scope_occs)
+    if not instances:
+        return ('No classified panels found in the scope. Panels are tagged by '
+                'Carcass Maker / Shelf Creator or by hand with Set Type.')
+
+    # World-space (proxy) bodies of every panel in scope — the joint test set.
+    panel_bodies = []
+    for occ, comp in instances:
+        try:
+            bodies = comp.bRepBodies
+            for bi in range(bodies.count):
+                body = bodies.item(bi)
+                proxy = body if occ is None else (body.createForAssemblyContext(occ) or body)
+                panel_bodies.append((f'{getattr(occ, "fullPathName", "<root>")}#{bi}', proxy))
+        except Exception:
+            continue
+
+    # addSelection only works on the ACTIVE selection input — after picking the
+    # scope, THAT input has focus and every add would silently return False.
+    # Grab focus and flush the UI queue so the change lands before we add.
+    try:
+        sel.hasFocus = True
+        adsk.doEvents()
+    except Exception:
+        pass
+
+    global detected_stash
+    detected_stash = []
+    found = 0
+    added = 0
+    skipped_joints = 0
+    for occ, comp in instances:
+        own_prefix = f'{getattr(occ, "fullPathName", "<root>")}#'
+        for face in panels.bandable_faces(comp):
+            found += 1
+            proxy = _face_proxy(face, occ)
+            own_token = own_prefix + str(_body_index(comp, face))
+            if exposed_only and _touches_another_panel(proxy, own_token, panel_bodies):
+                skipped_joints += 1
+                continue
+            try:
+                if sel.addSelection(proxy):
+                    added += 1
+                else:
+                    detected_stash.append(proxy)
+            except Exception:
+                detected_stash.append(proxy)
+
+    if not found:
+        return (f'No edge faces found on {len(instances)} panel(s) — are their '
+                f'bodies thin slabs with two broad faces?')
+    msg = f'Added {added} edge face(s) from {len(instances)} panel(s).'
+    if detected_stash:
+        # Selection UI refused them, but the tags don't need it: OK bands these.
+        msg = (f'Detected {added + len(detected_stash)} edge face(s) from '
+               f'{len(instances)} panel(s); {len(detected_stash)} could not be '
+               f'shown in the selection but WILL be banded on OK.')
+    if skipped_joints:
+        msg += f' Skipped {skipped_joints} touching another panel (joints).'
+    if added and not detected_stash:
+        msg += ' Ctrl-click to drop any you don\'t want.'
+    return msg
+
+
+def _body_index(component, face):
+    """Index of the body owning `face` within its component (joins the face to
+    the panel_bodies token scheme)."""
+    try:
+        bodies = component.bRepBodies
+        for bi in range(bodies.count):
+            if bodies.item(bi) == face.body:
+                return bi
+    except Exception:
+        pass
+    return 0
+
+
+def command_input_changed(args: adsk.core.InputChangedEventArgs):
+    # ONLY the Detect button — deliberately no reaction to selection changes.
+    # The value guard skips the event fired by our own reset back to False.
+    if args.input.id != DETECT_ID or not args.input.value:
+        return
+    inputs = args.inputs
+    try:
+        status = _detect_edge_faces(inputs)
+    except Exception as e:
+        futil.handle_error(f'{CMD_NAME} auto-detect')
+        status = f'Auto-detect failed: {e}'
+    box = inputs.itemById(STATUS_ID)
+    if box:
+        box.text = status
+    args.input.value = False    # reset the one-shot button
+
+
 def command_validate_input(args: adsk.core.ValidateInputsEventArgs):
     sel = args.inputs.itemById(SEL_ID)
-    args.areInputsValid = bool(sel and sel.selectionCount > 0)
+    args.areInputsValid = bool((sel and sel.selectionCount > 0) or detected_stash)
 
 
 def command_execute(args: adsk.core.CommandEventArgs):
@@ -202,11 +486,27 @@ def command_execute(args: adsk.core.CommandEventArgs):
 
     # Snapshot every selected face BEFORE writing: adding an attribute mutates the
     # document, which invalidates the selection input's list mid-loop (see the
-    # Set Type command / project memory).
+    # Set Type command / project memory). Auto-detected faces the selection UI
+    # refused (detected_stash) are banded too — de-duped against the selection
+    # by (component, body, face) identity.
     faces = []
+    seen = set()
+
+    def face_key(face):
+        try:
+            return (face.body.parentComponent.name, face.body.name, face.tempId)
+        except Exception:
+            return id(face)
+
     for i in range(sel.selectionCount):
         face = _native_face(sel.selection(i).entity)
-        if face:
+        if face and face_key(face) not in seen:
+            seen.add(face_key(face))
+            faces.append(face)
+    for proxy in detected_stash:
+        face = _native_face(proxy)
+        if face and face_key(face) not in seen:
+            seen.add(face_key(face))
             faces.append(face)
 
     # One appearance per band, resolved once against the active design.
@@ -262,5 +562,6 @@ def command_execute(args: adsk.core.CommandEventArgs):
 
 def command_destroy(args: adsk.core.CommandEventArgs):
     futil.log(f'{CMD_NAME} Command Destroy Event')
-    global local_handlers
+    global local_handlers, detected_stash
     local_handlers = []
+    detected_stash = []

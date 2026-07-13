@@ -166,6 +166,103 @@ def component_edgebands(component):
     return out
 
 
+def _cylinder_face_is_convex(face):
+    """True when a cylindrical face bulges OUTWARD (a rounded panel edge/corner —
+    bandable), False when it curves inward (a drilled hole, hinge cup, dowel bore —
+    never banded). Convex ⇔ the surface normal points away from the cylinder axis.
+    Non-cylindrical faces return True (no opinion)."""
+    try:
+        cyl = adsk.core.Cylinder.cast(face.geometry)
+        if not cyl:
+            return True
+        pt = face.pointOnFace
+        ok, normal = face.evaluator.getNormalAtPoint(pt)
+        if not ok:
+            return True
+        # Radial direction at pt: its offset from the axis, minus the axial part.
+        radial = cyl.origin.vectorTo(pt)
+        axis = cyl.axis.copy()
+        axis.normalize()
+        along = axis.copy()
+        along.scaleBy(radial.dotProduct(axis))
+        radial.subtract(along)
+        return radial.dotProduct(normal) >= 0
+    except Exception:
+        return True
+
+
+# A face counts as EDGE-LIKE when its strip width (2·area ÷ perimeter — exact
+# short side for a long rectangle) is at most this multiple of the panel
+# thickness; anything wider is a broad face. 1.6 tolerates bbox slop and
+# slightly proud bands while keeping 40 mm rails' broad faces broad.
+_EDGE_WIDTH_FACTOR = 1.6
+
+
+def bandable_faces(component):
+    """The faces of `component` that can take edgebanding — its thickness-side
+    ('edge') faces, found geometrically per body:
+
+    - Every face gets a strip width = 2·area ÷ perimeter (for a long rectangle
+      that IS the short side). Width ≤ 1.6 × panel thickness ⇒ edge-like;
+      wider ⇒ a broad face (a slab skin). Width — not top-2-by-area — because a
+      curved panel's outer skin is often SPLIT at a surface seam into two faces,
+      and picking the two largest would orphan the end strip that only touches
+      one half.
+    - Bandable = an edge-like face adjacent (shared edge) to at least TWO
+      distinct broad faces: the border strip between the skins. Groove/dado
+      walls touch at most one skin, so joinery stays out.
+    - Drilled holes are rejected two ways: a blind hole touches one skin
+      (adjacency fails); a through hole is a concave cylinder
+      (_cylinder_face_is_convex fails). A rounded corner/edge is convex and
+      stays bandable.
+
+    Returns NATIVE BRepFace objects, in body/face order; [] when nothing fits
+    (incl. components with no measurable thickness)."""
+    out = []
+    dims = panel_dims_mm(component)
+    if not dims or dims[2] <= 0:
+        return out
+    edge_cap_cm = _EDGE_WIDTH_FACTOR * dims[2] / 10.0
+    try:
+        bodies = component.bRepBodies
+    except Exception:
+        return out
+    for bi in range(bodies.count):
+        body = bodies.item(bi)
+        faces = [body.faces.item(i) for i in range(body.faces.count)]
+        if len(faces) < 3:      # a slab needs 2 broad skins + at least 1 edge
+            continue
+        broad_ids = set()
+        for f in faces:
+            try:
+                perimeter = sum(f.edges.item(i).length for i in range(f.edges.count))
+                if perimeter > 0 and (2.0 * f.area / perimeter) > edge_cap_cm:
+                    broad_ids.add(f.tempId)
+            except Exception:
+                continue
+        if len(broad_ids) < 2:  # no two skins — not slab-like (cleats, dowels…)
+            continue
+        for face in faces:
+            if face.tempId in broad_ids:
+                continue
+            adjacent = set()
+            try:
+                edges = face.edges
+                for ei in range(edges.count):
+                    edge_faces = edges.item(ei).faces
+                    for fi in range(edge_faces.count):
+                        adjacent.add(edge_faces.item(fi).tempId)
+            except Exception:
+                continue
+            adjacent.discard(face.tempId)
+            if len(adjacent & broad_ids) < 2:
+                continue
+            if not _cylinder_face_is_convex(face):
+                continue
+            out.append(face)
+    return out
+
+
 def _priced_hardware(component):
     """True when this component counts as ONE priced purchased unit whose price
     covers everything inside it: hardware, with its own cost, bought as a pack.
