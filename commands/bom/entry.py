@@ -26,6 +26,8 @@ import adsk.fusion
 from .. import ui_helpers
 from .. import panels
 from .. import report_utils
+from .. import sheets_store
+from .. import settings_store
 from .. import xlsx_writer
 from ...lib import fusionAddInUtils as futil
 from ... import config
@@ -179,13 +181,36 @@ def _xlsx_rows(tree):
     are numeric; assemblies leave dims blank. The name is space-indented by depth so
     the hierarchy reads even with grouping collapsed. Ends with the edgebanding
     purchase list (total metres + cost per band type across the design) and the
-    billed-BOM totals block (panels estimate / hardware / edgeband / grand total)."""
+    billed-BOM totals block (panels estimate / hardware / edgeband / grand total).
+
+    Costs are LIVE Excel formulas, so the numbers can be tweaked in the sheet:
+      - a priced row's Total (K) = Unit cost (J) × Qty (H); unit costs stay plain
+        editable numbers,
+      - an assembly's Unit cost sums its direct children's Total cells, so a change
+        anywhere below rolls up through every enclosing cabinet,
+      - an edgeband purchase row's cost derives from its Length (mm) cell at the
+        exported cost/m × waste factor,
+      - the totals block (Panels / Hardware / Edgeband / TOTAL) references the rows
+        above (× the enclosing Qty cells, mirroring tree_cost_totals' multiplier
+        walk), so the whole bill recalculates from any edit.
+    Cached values are written alongside each formula for non-calculating viewers;
+    Excel itself recalculates on open. Columns: A No, B Part#, C Name, D Type,
+    E Length, F Width, G Thickness, H Qty, I Material, J Unit cost, K Total."""
     rows = []
-    for node, level in panels.flatten_tree(tree):
+    blank = [''] * len(XLSX_HEADERS)
+    panel_terms = []    # 'K7*H3'-style: est-panel Total × enclosing Qty cells
+    hw_terms = []       # same for priced ('set') hardware rows
+
+    def rownum():
+        return len(rows) + 2        # +1 header row, +1 to 1-based
+
+    def emit(node, level, anc_qty):
+        r = rownum()
         has_dims = node['type'] != 'Assembly' and node['L'] > 0
         unit = node.get('unit_cost')
         cost = node.get('cost')
-        rows.append(([
+        kind = node.get('cost_kind')
+        cells = [
             node.get('no', ''),
             node['part_number'] or '',
             ('    ' * level) + node['name'],
@@ -196,41 +221,84 @@ def _xlsx_rows(tree):
             node['qty'],
             node['material'] or '',
             round(unit, 2) if unit is not None else '',
-            round(cost, 2) if cost is not None else '',
-        ], level))
+            '',
+        ]
+        rows.append((cells, level))
+        child_rows = [emit(c, level + 1, anc_qty + [f'H{r}'])
+                      for c in node['children']]
+        cached = round(cost, 2) if cost is not None else None
+        if kind == 'rollup':
+            # SUM(), not '+': SUM ignores text, so a note typed into a child's
+            # Total cell can't turn every enclosing assembly into #VALUE!.
+            cells[9] = xlsx_writer.Formula(
+                'SUM(' + ','.join(f'K{cr}' for cr in child_rows) + ')',
+                round(unit, 2) if unit is not None else None)
+            cells[10] = xlsx_writer.Formula(f'ROUND(J{r}*H{r},2)', cached)
+        elif kind in ('set', 'est'):
+            cells[10] = xlsx_writer.Formula(f'ROUND(J{r}*H{r},2)', cached)
+            terms = hw_terms if kind == 'set' else panel_terms
+            terms.append('*'.join([f'K{r}'] + anc_qty))
+        # 'absorbed' / unpriced rows keep the reference unit cost, no total.
+        return r
+
+    for n in tree:
+        emit(n, 0, [])
 
     totals = panels.tree_cost_totals(tree)
-    blank = [''] * len(XLSX_HEADERS)
 
     # Edgebanding purchase list — one row per band type. Length lands in the
     # Length (mm) column; an unpriced band still lists its metres so the shopping
     # list stays complete.
+    band_rows = []
     if totals['edgebands']:
-        rows.append((blank, 0))
+        catalogue = sheets_store.load()['edgebands']
+        waste_mult = 1.0 + settings_store.get_waste_percent() / 100.0
+        rows.append((list(blank), 0))
         for band in totals['edgebands']:
+            r = rownum()
             cells = list(blank)
             cells[2] = f"Edgeband — {band['name']}"
             cells[3] = 'Edgeband'
             cells[4] = round(band['length_mm'], 0)
             cells[8] = f"{band['length_mm'] / 1000.0:.2f} m"
-            if band['cost'] is not None:
-                cells[-1] = round(band['cost'], 2)
+            rate = sheets_store.edgeband_cost_per_m(
+                sheets_store.find_edgeband(catalogue, band['name']))
+            if rate is not None:
+                cells[10] = xlsx_writer.Formula(
+                    f'ROUND(E{r}/1000*{rate}*{round(waste_mult, 4)},2)',
+                    round(band['cost'], 2) if band['cost'] is not None else None)
             else:
                 cells[1] = 'no cost/m in the Sheets library'
             rows.append((cells, 0))
+            band_rows.append(r)
 
     if totals['grand'] or totals['unpriced_panels']:
-        def total_row(label, value):
+        def sum_expr(terms):
+            if not terms:
+                return '0'
+            expr = '+'.join(terms)
+            return expr if len(expr) < 8000 else None   # Excel's formula cap
+
+        def total_row(label, expr, value):
+            r = rownum()
             cells = list(blank)
             cells[2] = label
-            cells[-1] = round(value, 2)
-            return (cells, 0)
-        rows.append((blank, 0))
-        rows.append(total_row('Panels (estimated)', totals['panels_est']))
-        rows.append(total_row('Hardware', totals['hardware']))
+            cells[10] = (xlsx_writer.Formula(expr, round(value, 2))
+                         if expr is not None else round(value, 2))
+            rows.append((cells, 0))
+            return r
+
+        rows.append((list(blank), 0))
+        r_panels = total_row('Panels (estimated)', sum_expr(panel_terms),
+                             totals['panels_est'])
+        r_hw = total_row('Hardware', sum_expr(hw_terms), totals['hardware'])
+        grand_refs = [f'K{r_panels}', f'K{r_hw}']
         if totals['edgebands']:
-            rows.append(total_row('Edgeband (estimated)', totals['edgeband']))
-        rows.append(total_row('TOTAL', totals['grand']))
+            r_eb = total_row('Edgeband (estimated)',
+                             sum_expr([f'K{x}' for x in band_rows]),
+                             totals['edgeband'])
+            grand_refs.append(f'K{r_eb}')
+        total_row('TOTAL', '+'.join(grand_refs), totals['grand'])
         if totals['unpriced_panels']:
             cells = list(blank)
             cells[2] = (f"{totals['unpriced_panels']} panel(s) unpriced — no sheet "

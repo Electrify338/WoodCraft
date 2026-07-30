@@ -9,6 +9,9 @@ immediate parent assembly (the cabinet it lives in) so reports can tell apart
 same-named panels — every cabinet has a "Left Panel".
 """
 
+import copy
+import time
+
 import adsk.core
 import adsk.fusion
 
@@ -85,18 +88,61 @@ def _sheet_metal_dims_mm(component):
     return None
 
 
+def _own_bodies_ext_mm(component):
+    """Extents (mm, largest first) of the union of the component's OWN bodies'
+    bounding boxes, or None when it has no bodies. Component.boundingBox spans
+    child occurrences too, and Fusion computes it by touching every body in the
+    whole subtree — seconds per call on an assembly — so measurement must stay
+    on the component's own (cheap, precomputed) body boxes."""
+    try:
+        bodies = component.bRepBodies
+        if bodies.count == 0:
+            return None
+        mins = [float('inf')] * 3
+        maxs = [float('-inf')] * 3
+        measured = 0
+        for i in range(bodies.count):
+            body = bodies.item(i)
+            # Match Component.boundingBox: hidden bodies (alternate-position /
+            # tool leftovers) don't count toward a part's size.
+            if not body.isVisible:
+                continue
+            bb = body.boundingBox
+            lo, hi = bb.minPoint, bb.maxPoint
+            # A degenerate zero-size body (e.g. the leftover of a failed feature)
+            # is a stray point that would inflate the union across the distance
+            # to the real body — Fusion's own Component.boundingBox skips these.
+            if max(hi.x - lo.x, hi.y - lo.y, hi.z - lo.z) < 1e-3:   # < 0.01 mm
+                continue
+            measured += 1
+            for axis, (lo_v, hi_v) in enumerate(((lo.x, hi.x), (lo.y, hi.y), (lo.z, hi.z))):
+                mins[axis] = min(mins[axis], lo_v)
+                maxs[axis] = max(maxs[axis], hi_v)
+        if not measured:
+            return None
+        ext = sorted(((maxs[a] - mins[a]) * 10.0 for a in range(3)), reverse=True)
+        return ext
+    except Exception:
+        return None
+
+
 def panel_dims_mm(component):
     """Sorted (L, W, T) in millimetres, or None. Flat parts measure straight off
-    the component's bounding box; sheet-metal parts use their flat pattern / rule
-    so bent panels report the real sheet thickness and unfolded blank size."""
+    their own bodies' bounding boxes; sheet-metal parts use their flat pattern /
+    rule so bent panels report the real sheet thickness and unfolded blank size.
+    A component with no bodies of its own (e.g. a priced hardware pack whose
+    geometry lives in children) falls back to Component.boundingBox — expensive,
+    so callers must not measure plain assemblies (BOM assembly rows skip this)."""
     dims = _sheet_metal_dims_mm(component)
     if dims:
         return dims
-    try:
-        ext = _bbox_ext_mm(component.boundingBox)
-        return (ext[0], ext[1], ext[2])
-    except Exception:
-        return None
+    ext = _own_bodies_ext_mm(component)
+    if ext is None:
+        try:
+            ext = _bbox_ext_mm(component.boundingBox)
+        except Exception:
+            return None
+    return (ext[0], ext[1], ext[2])
 
 
 def looks_like_panel(dims, min_t=3.0, max_t=40.0, min_ratio=4.0):
@@ -434,11 +480,31 @@ def group_by_material_thickness(instances):
 # ---------------------------------------------------------------------------
 # Hierarchical BOM tree (used by the BOM palette / Excel export)
 # ---------------------------------------------------------------------------
+# Component.partNumber on a cloud-referenced component is a BLOCKING data-service
+# fetch: with a bad connection each read stalls Fusion ~30 s and then raises
+# 'Failed to fetch Part number' — across a big model that reads as a total freeze.
+# One failure means the service is unreachable, so stop asking for a while and
+# let Part # come back blank instead of hanging the UI.
+_PART_NUMBER_RETRY_AFTER = 0.0
+_PART_NUMBER_COOLDOWN_S = 300.0
+
+
 def _component_part_number(component):
-    """Native Fusion component part number (read/write property), or ''."""
+    """Native Fusion component part number (read/write property), or ''. Returns
+    '' without asking while the part-number service is in failure cooldown or
+    Fusion is offline (the fetch would block for the network timeout)."""
+    global _PART_NUMBER_RETRY_AFTER
+    if time.time() < _PART_NUMBER_RETRY_AFTER:
+        return ''
+    try:
+        if adsk.core.Application.get().isOffLine:
+            return ''
+    except Exception:
+        pass
     try:
         return component.partNumber or ''
     except Exception:
+        _PART_NUMBER_RETRY_AFTER = time.time() + _PART_NUMBER_COOLDOWN_S
         return ''
 
 
@@ -532,23 +598,58 @@ def build_tree(design, root=None):
             return sum(rolled), 'rollup'
         return None, None
 
-    def node_for(component, qty):
+    # One subtree build per unique component: the same cabinet dropped in 10
+    # times used to re-walk its dims / materials / per-face edgeband attributes
+    # 10 times over, which is what froze Fusion on big models. Keyed by
+    # (source document, component name) — component names are unique within a
+    # document, but two inserted library cabinets can each contain a "Left Side".
+    proto_cache = {}
+
+    def _comp_key(component):
+        # parentDesign.rootComponent stays in memory; Document-level properties
+        # can force a (network) load of a referenced design, so avoid them here.
+        try:
+            return (component.parentDesign.rootComponent.name, component.name)
+        except Exception:
+            return None
+
+    def build_proto(component):
         children = build_level(component.occurrences)
-        dims = panel_dims_mm(component) or (0.0, 0.0, 0.0)
-        node = {
+        ntype = _node_type(component, bool(children))
+        if ntype == 'Assembly':
+            # An Assembly row shows no dims or banding; measuring one via
+            # Component.boundingBox walks every body in its subtree.
+            dims = (0.0, 0.0, 0.0)
+            bands = []
+        else:
+            dims = panel_dims_mm(component) or (0.0, 0.0, 0.0)
+            bands = edgeband_rows(component)
+        proto = {
             'name': component.name,
-            'type': _node_type(component, bool(children)),
+            'type': ntype,
             'material': panel_material(component),
             'part_number': _component_part_number(component),
             'L': dims[0], 'W': dims[1], 'T': dims[2],
-            'qty': qty,
-            'edgebands': edgeband_rows(component),
+            'qty': 1,
+            'edgebands': bands,
             'children': children,
         }
-        unit, kind = cost_for(component, node, children)
-        node['unit_cost'] = unit
-        node['cost'] = unit * qty if unit is not None else None
-        node['cost_kind'] = kind
+        unit, kind = cost_for(component, proto, children)
+        proto['unit_cost'] = unit
+        proto['cost'] = unit
+        proto['cost_kind'] = kind
+        return proto
+
+    def node_for(component, qty):
+        key = _comp_key(component)
+        proto = proto_cache.get(key) if key else None
+        if proto is None:
+            proto = build_proto(component)
+            if key:
+                proto_cache[key] = proto
+        node = copy.deepcopy(proto)
+        node['qty'] = qty
+        node['cost'] = node['unit_cost'] * qty if node['unit_cost'] is not None else None
         return node
 
     def build_level(occ_collection):

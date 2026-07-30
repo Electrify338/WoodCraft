@@ -11,9 +11,21 @@ Usage:
         (['  Left Panel', 2], 1),
     ], sheet_name='BOM', col_widths=[40, 8])
 Numbers (int/float) are written as numeric cells; everything else as text.
+A `Formula` cell writes a live Excel formula (so exported costs recalc when the
+user tweaks quantities or unit costs in Excel).
 """
 
 import zipfile
+
+
+class Formula:
+    """A live formula cell: `expr` is the Excel formula WITHOUT the leading '=',
+    `value` an optional cached numeric result (shown by viewers that don't
+    calculate; Excel itself recalculates on open via fullCalcOnLoad)."""
+
+    def __init__(self, expr, value=None):
+        self.expr = expr
+        self.value = value
 
 
 def _col_letter(n):
@@ -31,8 +43,18 @@ def _esc(s):
 
 
 def _cell(col, row, value, bold=False):
+    # Emit NO cell for an empty value: an empty inline STRING is a text cell,
+    # and Excel arithmetic over a text cell (e.g. a rollup summing a costless
+    # row's Total) is #VALUE! — a truly blank cell coerces to 0 instead.
+    if value is None or value == '':
+        return ''
     ref = f'{_col_letter(col)}{row}'
     style = ' s="1"' if bold else ''
+    if isinstance(value, Formula):
+        cached = ''
+        if isinstance(value.value, (int, float)) and not isinstance(value.value, bool):
+            cached = f'<v>{value.value}</v>'
+        return f'<c r="{ref}"{style}><f>{_esc(value.expr)}</f>{cached}</c>'
     if isinstance(value, bool):
         value = str(value)
     if isinstance(value, (int, float)):
@@ -90,6 +112,9 @@ def _workbook(sheet_name):
         '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
         'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
         f'<sheets><sheet name="{_esc(sheet_name)[:31]}" sheetId="1" r:id="rId1"/></sheets>'
+        # Recalculate every formula when the workbook opens, so cells never show
+        # stale cached values (we write caches only for non-calculating viewers).
+        '<calcPr fullCalcOnLoad="1"/>'
         '</workbook>')
 
 
