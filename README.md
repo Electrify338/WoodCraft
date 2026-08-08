@@ -5,9 +5,9 @@ alternative to tools like JoinerCAD. It turns a simple "skeleton" body into
 parametric panel components, joins and machines them, and produces material‑aware
 cut lists with colour‑coded nesting diagrams — without the bloat or a subscription.
 
-> **Status:** active development. Ten commands across four toolbar panels
-> (modelling, hardware, output and dev). Pure Python + the Fusion API — **no
-> external packages, no build step**.
+> **Status:** active development. Seventeen commands across five toolbar panels
+> (modelling, hardware, kitchen, output and dev). Pure Python + the Fusion API —
+> **no external packages, no build step**.
 
 ---
 
@@ -23,7 +23,9 @@ split into panels that read as a workflow (design → hardware → output):
 | **Trim** | Combine‑cuts panels so they fit against each other, with an optional uniform **gap** (clearance/reveal; 0 = flush). |
 | **Edit Thickness** | Re‑thickness existing panels by editing the extrude extent **in place** (preserves direction + offset). Prefills the current thickness. |
 | **Shelf Creator** | Builds a parametric shelf on a chosen plane bounded by four faces, each with its own offset (positive, negative or uneven), kept associative to the walls. |
-| **Set Type** | Classifies selected components/bodies as **panels** or **purchased hardware** (with a unit cost) so the cut list, nesting and BOM can sort them. Use it for hand‑modelled or imported parts. |
+| **Line Boring** | Bores the shelf‑pin hole pattern into a side/gable panel from a pluggable **rule** (default **Emaar**: three‑hole sets in two columns, set centres dividing the panel height into N+1 equal gaps). Builds **live‑parametric** — `wc_lb_*` user parameters driving a sketch → seed hole → 2‑direction pattern — so editing the parameters reflows the holes; falls back to explicit holes if any step of the parametric build fails. Geometry and the rule registry live in `commands/boring.py`. |
+| **Edgeband** | Tags a panel's thin **edge faces** with an edgeband type from the Sheets library's band catalogue, and **tints** them in the viewport so banded edges read at a glance. The BOM sums tagged length per band type (face area ÷ thickness, so curves count their true arc length) and prices the metres from the catalogue. An "only exposed edges" detector probes each face to skip edges butted against another panel. |
+| **Set Type** | Classifies selected components/bodies as **panels** or **purchased hardware** (with a unit cost) so the cut list, nesting and BOM can sort them. Hardware assemblies can be priced as a **complete pack** (one price, children not billed again) or as **separate parts** (sum of contents). Use it for hand‑modelled or imported parts. |
 
 ### Hardware (machining)
 | Command | What it does |
@@ -31,12 +33,23 @@ split into panels that read as a workflow (design → hardware → output):
 | **Insert Hardware** | Inserts parts from a Fusion **cloud library** (top‑level folders = categories) linked at the origin, then launches Fusion's Move gizmo to position them. Thumbnail preview, module cache, and a Refresh button. *(Needs a cloud project — see setup.)* |
 | **Sculpt** | Combine‑cuts panels with hardware "tool" bodies that intersect them (e.g. hinge cups, dowel holes), keeping the tool bodies. The productised "machining" step. |
 
+### Kitchen (whole-assembly)
+These act on a **finished kitchen** — a run of cabinets already assembled — rather
+than on one cabinet at a time.
+
+| Command | What it does |
+|---|---|
+| **Countertop** | Builds the worktop over assembled cabinets. **The wall is the reference:** the slab's back edge lies on the picked wall face and its front edge is that face offset by the **cabinet depth + a 20 mm overhang** (editable). The **side panels supply only the two end lines** — where the run starts and stops along the wall, taken from their outer faces. The underside lands on the **top of the tallest selected side panel**, so you never measure the plinth + carcass height. Tick **Backsplash** for an upstand as well, with its own **thickness** and **height**: it runs the full length of each run, hard against the wall, standing on the worktop. A **live preview** draws every piece as a wireframe box (slab in cyan, upstand in amber) labelled with its run length, so you see it before you commit. One wall face = one run = one component with one body (`Countertop` / `Countertop 1..N`, plus `Backsplash N`), each tagged as a WoodCraft panel so it flows into the BOM and cut list. **L‑ and U‑shaped kitchens in one go:** select every wall and every end panel — each run claims the panels standing in front of *its* wall, is **extended and then clipped to the other walls' planes** so it ends exactly where the walls meet — neither short of the corner nor through the wall — and where two runs still overlap the command finishes with a **Combine cut** (keeping the tool) so the corner is solid once, not twice. |
+| **Cabinet Data** | Records the **Carcass Type** and **Door Type** (*Painted* or *Veneer*) on the selected cabinets. Two keys, not one, because a cabinet is routinely veneer inside and painted on the front. Multi‑select is the point — spec the whole base run in one click. Stored as component attributes, saved inside the `.f3d`, read straight back by Kitchen Export. |
+| **Kitchen Export** | Run on the finished assembly: writes a native `.xlsx` with **one row per cabinet** — *Cabinet model name · Cabinet width (mm) · Carcass material · Carcass Type · Door material · Door Type*. Materials are read from the **Fusion physical material** on the panels inside and split by panel name (see below). The dialog is a preflight: it tells you how many cabinets are missing a type or a material *before* you pick a filename. |
+
 ### Output (production)
 | Command | What it does |
 |---|---|
 | **Sheets** | A docked **HTML palette** that edits a global stock‑sheet **library** modelled on Fusion's Nesting *Process Material Library*: **Material → Sheets**. Each material has a name (matching the Fusion material), thickness, category and a display **colour**; each sheet has a size, cost and nesting params (rotation, item separation, edge trim). Save / **Export** / **Import** for sharing. |
 | **Cut List & Nest** | Collects all panels, groups them by **(material, thickness)**, matches each group to the Sheets library, and opens a **colour‑coded HTML report**: cut‑list table, per‑sheet **guillotine nesting** diagrams, sheet count, yield, optional cost, a **purchased‑items** list (your hardware + costs), and a printable label sheet. Pick one or more assemblies (or the whole design), and choose which stock sheet to nest on when a material has several. |
-| **BOM** | A **docked palette** showing the **assembly hierarchy** — root → components → sub‑components — one row per component with its **type, dimensions, material, quantity and part number** (the native Fusion `Component.partNumber`). Expand/collapse the tree and **Export to Excel** (a native `.xlsx`, written with the stdlib — no add‑on dependency). Shows the active **configuration** name. This is the structural bill; the cutting/nesting view lives in Cut List & Nest. |
+| **BOM** | A **docked palette** showing the **assembly hierarchy** — root → components → sub‑components — one row per component with its **type, dimensions, material, quantity and part number** (the native Fusion `Component.partNumber`). Expand/collapse the tree and **Export to Excel** (a native `.xlsx`, written with the stdlib — no add‑on dependency, with **live formulas** so costs recalc when you tweak quantities). Shows the active **configuration** name. This is the structural bill; the cutting/nesting view lives in Cut List & Nest. |
+| **Settings** | Add‑on‑wide options shared by every design (stored next to the Sheets library). Today that's the panel‑cost **waste factor** — the percentage added on top of a panel's raw area when the BOM estimates its cost from sheet prices, since nesting never uses 100 % of a sheet. Not promoted to the toolbar; find it in the Output panel's overflow. |
 
 ### Dev
 | Command | What it does |
@@ -55,6 +68,24 @@ split into panels that read as a workflow (design → hardware → output):
   panels and purchased items stay cleanly separated, even across referenced cabinets
   in a larger assembly. The scheme is an extensible key/value store
   (`commands/wc_attrs.py`); new commands add keys without migrations.
+- **Carcass vs. door is decided by NAME.** Kitchen Export calls a panel a *front*
+  when its component name contains `door`, `drawer` or `front`
+  (`config.DOOR_PANEL_KEYWORDS`, case‑insensitive); everything else is *carcass*.
+  Name‑based rather than a new tag, so it works on cabinets modelled before this
+  this command existed — renaming a component is cheaper than re‑tagging it. Edit the
+  tuple in `config.py` to match your own naming.
+- **What counts as a cabinet.** Kitchen Export takes the **top‑level components**
+  of the design (the cabinets placed in the kitchen assembly) that are assemblies
+  or have been specced with Cabinet Data. Countertops, loose panels and purchased
+  hardware sitting at the top level are skipped — they carry a `panel` /
+  `hardware` category and are parts *of* the kitchen, not cabinets *in* it. One
+  row per placed cabinet, so three identical base units give three rows; group
+  them in Excel if you want quantities.
+- **Cabinet width is measured locally.** The X extent of the cabinet component's
+  *own* bounding box, not the world one, so a cabinet rotated onto the other leg
+  of an L‑shaped kitchen still reports its width and not its depth. If one reads
+  ~600 mm where you expect 400, that component was modelled with its width along
+  Y.
 - **Material = Fusion's native material.** Cut List reads each panel's Fusion
   physical material name and matches it (plus thickness) to the Sheets library.
   Assign real materials to your parts in Fusion, define matching stock in the
@@ -116,12 +147,23 @@ time you open **Sheets** or run **Cut List**, so there's nothing else to configu
 1. **Model a skeleton** box at the cabinet's outer dimensions.
 2. **Carcass Maker** → pick faces (or *Collect all flat faces*), set thickness /
    direction / offset, **OK**. → **Trim** to resolve the corner overlaps.
-3. **Shelf Creator** for shelves; **Edit Thickness** to re‑thickness anything.
-4. Assign **Fusion materials** to your panels.
+3. **Shelf Creator** for shelves; **Edit Thickness** to re‑thickness anything;
+   **Line Boring** for the shelf‑pin holes.
+4. Assign **Fusion materials** to your panels, and **Edgeband** the exposed edges.
 5. **Sheets** → define your stock (use **+ From design** to pull in the materials
    the design actually uses), set sizes / cost / colour, **Save**.
 6. **Cut List & Nest** → pick the assemblies (or leave empty for the whole design)
    → the colour‑coded report opens in your browser.
+
+### …and for a whole kitchen
+
+7. Assemble the cabinets into the kitchen.
+8. **Countertop** → pick the wall face(s) and the side panels at each end of each
+   run, set cabinet depth + slab thickness, tick **Backsplash** if you want an
+   upstand → check the preview → the worktop lands on top, corners already cut.
+9. **Cabinet Data** → select each group of cabinets, set *Carcass Type* and
+   *Door Type*.
+10. **Kitchen Export** → the schedule drops out as an `.xlsx`.
 
 ---
 
@@ -142,17 +184,30 @@ WoodCraft/
 ├── WoodCraft.py                # add-in entry point (run / stop)
 ├── WoodCraft.manifest          # Fusion add-in manifest
 ├── AddInIcon.svg               # add-in icon
-├── config.py                   # shared ids, panel names, DEBUG, hardware project name
+├── config.py                   # shared ids, panel names, DEBUG, hardware project name,
+│                               #   attribute schema, door-name keywords
 ├── commands/
-│   ├── __init__.py             # registers every command
+│   ├── __init__.py             # registers every command (start/stop, per-command error isolation)
 │   ├── ui_helpers.py           # shared tab/panel creation, teardown, panel tagging
-│   ├── panels.py               # shared panel collector + material reading
+│   ├── wc_attrs.py             # component attribute store (category, cost, purchase mode,
+│   │                           #   edgeband, cabinet carcass/door type)
+│   ├── panels.py               # shared panel collector, material reading, assembly tree
+│   ├── boring.py               # pure-math shelf-pin boring rules + geometry (no Fusion features)
+│   ├── countertop_geom.py      # pure-math worktop outline from wall + side panels (no Fusion API)
+│   ├── kitchen_schedule.py     # pure-math door/carcass split + material merge (no Fusion API)
 │   ├── nesting.py              # pure-math guillotine nester + SVG (no Fusion API)
-│   ├── sheets_store.py         # global stock-sheet library (load/save/match; pure)
-│   ├── carcassMaker/  trim/  editThickness/  shelf/  convertPanel/
+│   ├── sheets_store.py         # global stock-sheet + edgeband library (load/save/match; pure)
+│   ├── settings_store.py       # global add-on settings JSON (waste factor)
+│   ├── report_utils.py         # shared HTML report shell, CSS, escaping, open-in-browser
+│   ├── xlsx_writer.py          # dependency-free .xlsx writer (stdlib zipfile + XML)
+│   ├── carcassMaker/  trim/  editThickness/  shelf/  lineBoring/  edgeband/  convertPanel/
 │   ├── insertHardware/  sculpt/
+│   ├── countertop/  cabinetData/   # Kitchen panel
 │   ├── sheets/                 # Sheets palette: entry.py + resources/html/{index,style,main}
 │   ├── cutList/                # Cut List & Nest
+│   ├── bom/                    # BOM palette: entry.py + resources/html/{index,style,main}
+│   ├── kitchenExport/          # Kitchen schedule .xlsx
+│   ├── settings/               # Add-on settings dialog
 │   └── inspectPanels/          # Dev tool (removable)
 ├── lib/fusionAddInUtils/       # Autodesk template helpers (logging, event wiring)
 └── docs/UI_GUIDE.md            # icon / UI guide for design work
@@ -176,7 +231,36 @@ append it to the `commands` list, and drop icons in its `resources/`. See
   negatives.)
 - **Shelf Creator** assumes the four bounding faces form two parallel pairs (the
   normal cabinet case).
+- **Countertop runs start as rectangles.** Each wall face gives one slab, then it
+  is stretched into any corner it meets and clipped by the other picked walls, so
+  a run in an L or U lands exactly on the wall‑to‑wall intersection. Where two
+  finished runs still overlap the command Combine‑cuts the later one with the
+  earlier one — but the joint is a **butt, not a mitre**, and the first wall you
+  pick is the run that stays whole. Cut‑outs (sink, hob) and a nosing profile are
+  modelling steps, not part of this command. The slab is also **not
+  associative**: it is built from the cabinets' positions at the moment you run
+  it, so move a cabinet and you re‑run Countertop.
+- **Corners only work with the walls you pick.** A wall that bounds a run but
+  isn't selected can neither extend nor clip it — if a run stops short of a
+  corner or runs past one, add that wall face to the selection.
+- **A run is only stretched into a nearby corner** — a wall further than the
+  worktop depth (plus 100 mm) beyond the run's end is treated as a different part
+  of the house and ignored, and a wall parallel to the run never extends it. So a
+  run that genuinely stops short of a wall (a doorway, an appliance gap) will
+  still be pulled to it if that wall is selected and within range; leave it out of
+  the selection in that case.
+- **The corner cut needs real overlap.** Runs that merely butt end‑to‑end, or that
+  sit at different heights (a raised breakfast bar over base units), are left
+  alone — only genuinely coincident material is trimmed.
+- **Cabinet Data is per component, not per occurrence.** Fusion attributes live on
+  the component, so all copies of one cabinet share a spec. Two identical boxes
+  needing different finishes must be made independent first.
+- **Kitchen Export reads names.** The door/carcass split relies on your panel
+  naming (`door` / `drawer` / `front`). Cabinets whose panels are all called
+  "Panel 1..6" will report everything as carcass.
 - **UI/icons** are maintained partly by separate passes; see `docs/UI_GUIDE.md`.
+  The three Kitchen icons are rendered by `generate_icons_kitchen.py` (dev‑only,
+  Pillow, `.gitignore`d — the PNGs are what ships).
 
 ---
 

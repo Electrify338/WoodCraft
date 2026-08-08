@@ -2,6 +2,8 @@
 # Each command lives in its own sub-folder with an `entry` module exposing
 # start() and stop(). Add a new command by creating a folder, importing its
 # entry module here, and appending it to the `commands` list.
+from ..lib import fusionAddInUtils as futil
+
 from .carcassMaker import entry as carcassMaker
 from .trim import entry as trim
 from .editThickness import entry as editThickness
@@ -11,9 +13,12 @@ from .convertPanel import entry as convertPanel
 from .edgeband import entry as edgeband
 from .insertHardware import entry as insertHardware
 from .sculpt import entry as sculpt
+from .countertop import entry as countertop
+from .cabinetData import entry as cabinetData
 from .sheets import entry as sheets
 from .cutList import entry as cutList
 from .bom import entry as bom
+from .kitchenExport import entry as kitchenExport
 from .settings import entry as settings
 from .inspectPanels import entry as inspectPanels  # DEV — remove later
 
@@ -28,9 +33,12 @@ commands = [
     edgeband,
     insertHardware,
     sculpt,
+    countertop,
+    cabinetData,
     sheets,
     cutList,
     bom,
+    kitchenExport,
     settings,
     inspectPanels,  # DEV — remove later
 ]
@@ -40,10 +48,17 @@ commands = [
 # failing command doesn't prevent the others from loading.
 def start():
     for command in commands:
-        command.start()
+        try:
+            command.start()
+        except:
+            futil.handle_error(f'{command.__name__}.start')
 
 
-# Run the stop function in each command. Errors are caught and logged.
+# Run the stop function in each command. Errors are caught and logged so one
+# failing teardown doesn't leave the rest of the UI behind.
 def stop():
     for command in commands:
-        command.stop()
+        try:
+            command.stop()
+        except:
+            futil.handle_error(f'{command.__name__}.stop')
