@@ -86,7 +86,7 @@ def _collect():
     for it in panels.collect_instances(design):
         key = (it['comp_name'], it['category'])
         if key not in agg:
-            if it['category'] == config.WC_CAT_PANEL:
+            if it['category'] in config.WC_SHEET_LIKE:
                 unit = panels.estimate_panel_unit_cost(
                     it['material'], it['T'], it['L'], it['W'],
                     materials=materials, waste_mult=waste_mult)
@@ -133,7 +133,7 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
             q = f"{r['qty']}&times; " if r['qty'] > 1 else ''
             line = (f"<b>[{r['category']}]</b> {q}{r['name']}: &nbsp; "
                     f"{dims[0]:.1f} &times; {dims[1]:.1f} &times; {dims[2]:.1f} mm")
-            if r['category'] == config.WC_CAT_PANEL:
+            if r['category'] in config.WC_SHEET_LIKE:
                 if r['unit'] is None:
                     line += ' &nbsp;—&nbsp; <i>unpriced (no sheet cost)</i>'
                     unpriced += r['qty']

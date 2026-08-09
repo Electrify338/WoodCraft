@@ -7,27 +7,42 @@ and edited without touching Fusion plumbing (the same split as ``nesting.py``,
 ``boring.py`` and ``countertop_geom.py``).
 
 A panel is a **front** when its component name contains one of
-``config.DOOR_PANEL_KEYWORDS`` — 'door', 'drawer' or 'front' by default. Naming
-rather than tagging, because it works on cabinets modelled before this fork
-existed and because renaming a component is cheaper than re-tagging it.
-Everything that is not a front is **carcass**.
+``config.DOOR_PANEL_KEYWORDS`` — 'door', 'drawer front' or 'front' by default —
+and does NOT contain one of ``config.DOOR_PANEL_EXCLUDE``. Naming rather than
+tagging, because it works on cabinets modelled before this fork existed and
+because renaming a component is cheaper than re-tagging it. Everything that is
+not a front is **carcass**.
+
+The exclusion list is not decoration. A drawer BOX is carcass material, and its
+parts are universally called "Drawer Side", "Drawer Back", "Drawer Bottom"; the
+rails and stretchers across the front of a carcass are carcass too. Matching a
+bare 'drawer' or 'front' swept all of them into the Door column, and because
+``merge_materials`` ranks by how many panels voted, the drawer-box material then
+outranked the real door material in the cell.
 """
 
 from .. import config
 
 
-def is_door_panel(name, keywords=None) -> bool:
-    """True if this panel's name marks it as a door / drawer / front.
+def is_door_panel(name, keywords=None, exclude=None) -> bool:
+    """True if this panel's name marks it as a door / drawer front / front.
 
     Matching is case-insensitive and on substrings, so 'Door L', 'Drawer Front 2'
-    and 'FRONT PANEL' all count, and so does 'Doors'. A panel named for something
-    that merely contains a keyword (there is no common cabinet part named
-    '...drawer...' that isn't a front) would be a false positive — adjust
-    config.DOOR_PANEL_KEYWORDS if your naming needs it.
+    and 'FRONT PANEL' all count, and so does 'Doors'.
+
+    `exclude` is checked FIRST and wins, for the carcass parts whose names happen
+    to contain a front-ish word ('Drawer Side', 'Front Rail', …). If your naming
+    puts a keyword on something that isn't a front, add it to
+    config.DOOR_PANEL_EXCLUDE rather than removing the keyword — the keyword is
+    doing useful work for every other cabinet.
     """
     if keywords is None:
         keywords = config.DOOR_PANEL_KEYWORDS
+    if exclude is None:
+        exclude = config.DOOR_PANEL_EXCLUDE
     lowered = str(name or '').lower()
+    if any(word in lowered for word in exclude):
+        return False
     return any(word in lowered for word in keywords)
 
 
@@ -59,7 +74,7 @@ def merge_materials(materials) -> str:
     return ' / '.join(ranked)
 
 
-def split_materials(panels, keywords=None):
+def split_materials(panels, keywords=None, exclude=None):
     """(carcass_material, door_material) for one cabinet.
 
     `panels` is an iterable of (component_name, material_name) pairs — every
@@ -67,18 +82,18 @@ def split_materials(panels, keywords=None):
     """
     carcass, door = [], []
     for name, material in panels:
-        (door if is_door_panel(name, keywords) else carcass).append(material)
+        (door if is_door_panel(name, keywords, exclude) else carcass).append(material)
     return merge_materials(carcass), merge_materials(door)
 
 
 def schedule_row(model_name, width_mm, panels, carcass_type, door_type,
-                 keywords=None):
+                 keywords=None, exclude=None):
     """One export row, in the column order of Kitchen Export's spreadsheet:
 
         Cabinet model name | Cabinet width (mm) | Carcass material |
         Carcass Type | Door material | Door Type
     """
-    carcass_material, door_material = split_materials(panels, keywords)
+    carcass_material, door_material = split_materials(panels, keywords, exclude)
     return [model_name,
             None if width_mm is None else round(float(width_mm), 1),
             carcass_material,

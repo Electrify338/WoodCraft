@@ -1,9 +1,13 @@
 """Set Type — classify selected components for WoodCraft's reports.
 
 Pick one or more components (or their bodies) and choose what they are:
-  - Panel    → a sheet good; flows into the cut list, nesting and the BOM panels.
-  - Hardware → a purchased item; flows into the BOM purchased-items section, with
-               a unit cost you enter here.
+  - Panel      → a sheet good; flows into the cut list, nesting and the BOM panels.
+  - Hardware   → a purchased item; flows into the BOM purchased-items section, with
+                 a unit cost you enter here.
+  - Countertop → a worktop slab; costed by area and edgebandable like a panel, but
+                 NOT nested — it is bought as a slab or a cut length. The
+                 Countertop command stamps this on what it builds; choose it here
+                 for a worktop you modelled yourself.
 
 Carcass Maker and Shelf Creator auto-classify what they build as panels; this
 command classifies hand-modelled or imported components (and lets you re-type or
@@ -45,10 +49,21 @@ MODE_ID = 'cp_purchase'
 COST_ID = 'cp_cost'
 
 # Dropdown order → category value. Index 0 is the default (Panel).
+# 'Countertop' is here so a worktop modelled by hand can be classified the same
+# way the Countertop command classifies the ones it builds — costed by area and
+# edgebandable like a panel, but never nested (see config.WC_SHEET_LIKE).
 CATEGORY_CHOICES = [
     ('Panel', config.WC_CAT_PANEL),
     ('Hardware (purchased)', config.WC_CAT_HARDWARE),
+    ('Countertop (not nested)', config.WC_CAT_COUNTERTOP),
 ]
+
+# Category → the word the confirmation message uses.
+CATEGORY_LABELS = {
+    config.WC_CAT_PANEL: 'panel',
+    config.WC_CAT_HARDWARE: 'hardware item',
+    config.WC_CAT_COUNTERTOP: 'countertop',
+}
 
 # Purchase-mode dropdown order → attribute value. Index 0 is the default (pack).
 # Hardware modelled as an assembly (Minifix, hinge…) can be bought either way:
@@ -238,7 +253,7 @@ def command_execute(args: adsk.core.CommandEventArgs):
             wc_attrs.remove_value(comp, config.WC_PURCHASE)
         done += 1
 
-    label = 'panel' if category == config.WC_CAT_PANEL else 'hardware item'
+    label = CATEGORY_LABELS.get(category, 'item')
     plural = '' if done == 1 else 's'
     msg = f'Classified {done} component(s) as {label}{plural}.'
     if is_hardware and is_pack and cost:

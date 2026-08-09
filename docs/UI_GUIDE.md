@@ -32,12 +32,12 @@ Design workspace (FusionSolidEnvironment)
     │   └── Sculpt           (button)      id = WoodCraft_sculpt
     ├── Panel: "Kitchen"                   id = WoodCraft_kitchen_panel
     │   ├── Countertop       (button)      id = WoodCraft_countertop
-    │   └── Cabinet Data     (button)      id = WoodCraft_cabinetData
+    │   ├── Cabinet Data     (button)      id = WoodCraft_cabinetData
+    │   └── Kitchen Export   (button)      id = WoodCraft_kitchenExport
     ├── Panel: "Output"                    id = WoodCraft_output_panel
     │   ├── Sheets           (palette)     id = WoodCraft_sheets
     │   ├── Cut List & Nest  (button)      id = WoodCraft_cutList
     │   ├── BOM              (palette)     id = WoodCraft_bom
-    │   ├── Kitchen Export   (button)      id = WoodCraft_kitchenExport
     │   └── Settings         (button)      id = WoodCraft_settings   (not promoted)
     └── Panel: "Dev"                       id = WoodCraft_dev_panel
         └── Inspect Panels   (button)      id = WoodCraft_inspectPanels   (removable)
@@ -238,17 +238,16 @@ design's real material names come from `panels.design_panel_materials(design)` a
 
 ## 5. Quick reference — IDs you must not change
 
-| Constant (in `config.py`)     | Value                               |
-|-------------------------------|-------------------------------------|
-| `COMPANY_NAME`                | `WoodCraft`                  |
-| `DISPLAY_NAME`                | `WoodCraft`                  |
-| `DESIGN_WORKSPACE_ID`         | `FusionSolidEnvironment`            |
-| `TAB_ID` / `TAB_NAME`         | `WoodCraft_tab` / WoodCraft |
+| Constant (in `config.py`)     | Value                                       |
+|-------------------------------|---------------------------------------------|
+| `COMPANY_NAME`                | `WoodCraft`                                 |
+| `DESIGN_WORKSPACE_ID`         | `FusionSolidEnvironment`                    |
+| `TAB_ID` / `TAB_NAME`         | `WoodCraft_tab` / WoodCraft                 |
 | `CABINET_PANEL_ID` / NAME     | `WoodCraft_cabinet_panel` / Cabinet Builder |
-| `HARDWARE_PANEL_ID` / NAME    | `WoodCraft_hardware_panel` / Hardware |
-| `KITCHEN_PANEL_ID` / NAME     | `WoodCraft_kitchen_panel` / Kitchen |
-| `OUTPUT_PANEL_ID` / NAME      | `WoodCraft_output_panel` / Output   |
-| `DEV_PANEL_ID` / NAME         | `WoodCraft_dev_panel` / Dev         |
+| `HARDWARE_PANEL_ID` / NAME    | `WoodCraft_hardware_panel` / Hardware       |
+| `KITCHEN_PANEL_ID` / NAME     | `WoodCraft_kitchen_panel` / Kitchen         |
+| `OUTPUT_PANEL_ID` / NAME      | `WoodCraft_output_panel` / Output           |
+| `DEV_PANEL_ID` / NAME         | `WoodCraft_dev_panel` / Dev                 |
 
 Command `CMD_ID`s (each in its own `entry.py`, all prefixed `WoodCraft`):
 `_carcassMaker`, `_trim`, `_editThickness`, `_shelf`, `_lineBoring`, `_edgeband`,

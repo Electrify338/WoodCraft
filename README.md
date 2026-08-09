@@ -39,7 +39,7 @@ than on one cabinet at a time.
 
 | Command | What it does |
 |---|---|
-| **Countertop** | Builds the worktop over assembled cabinets. **The wall is the reference:** the slab's back edge lies on the picked wall face and its front edge is that face offset by the **cabinet depth + a 20 mm overhang** (editable). The **side panels supply only the two end lines** — where the run starts and stops along the wall, taken from their outer faces. The underside lands on the **top of the tallest selected side panel**, so you never measure the plinth + carcass height. Tick **Backsplash** for an upstand as well, with its own **thickness** and **height**: it runs the full length of each run, hard against the wall, standing on the worktop. A **live preview** draws every piece as a wireframe box (slab in cyan, upstand in amber) labelled with its run length, so you see it before you commit. One wall face = one run = one component with one body (`Countertop` / `Countertop 1..N`, plus `Backsplash N`), each tagged as a WoodCraft panel so it flows into the BOM and cut list. **L‑ and U‑shaped kitchens in one go:** select every wall and every end panel — each run claims the panels standing in front of *its* wall, is **extended and then clipped to the other walls' planes** so it ends exactly where the walls meet — neither short of the corner nor through the wall — and where two runs still overlap the command finishes with a **Combine cut** (keeping the tool) so the corner is solid once, not twice. |
+| **Countertop** | Builds the worktop over assembled cabinets. **The wall is the reference:** the slab's back edge lies on the picked wall face and its front edge is that face offset by the **cabinet depth + a 20 mm overhang** (editable). The **side panels supply only the two end lines** — where the run starts and stops along the wall, taken from their outer faces. The underside lands on the **top of the tallest selected side panel**, so you never measure the plinth + carcass height. Tick **Backsplash** for an upstand as well, with its own **thickness** and **height**: it runs the full length of each run, hard against the wall, standing on the worktop. A **live preview** draws every piece as a wireframe box (slab in cyan, upstand in amber) labelled with its run length, so you see it before you commit. One wall face = one run = one component with one body (`Countertop` / `Countertop 1..N`, plus `Backsplash N`), each tagged with its own **countertop** category — costed by area and edgebandable exactly like a panel, but kept **out of the cut list and the nest**, because a worktop is bought as a slab or a cut length rather than nested out of a stock sheet. **L‑ and U‑shaped kitchens in one go:** select every wall and every end panel — each run claims the panels standing in front of *its* wall, is **extended and then clipped to the other walls' planes** so it ends exactly where the walls meet — neither short of the corner nor through the wall — and where two runs still overlap the command finishes with a **Combine cut** (keeping the tool) so the corner is solid once, not twice. |
 | **Cabinet Data** | Records the **Carcass Type** and **Door Type** (*Painted* or *Veneer*) on the selected cabinets. Two keys, not one, because a cabinet is routinely veneer inside and painted on the front. Multi‑select is the point — spec the whole base run in one click. Stored as component attributes, saved inside the `.f3d`, read straight back by Kitchen Export. |
 | **Kitchen Export** | Run on the finished assembly: writes a native `.xlsx` with **one row per cabinet** — *Cabinet model name · Cabinet width (mm) · Carcass material · Carcass Type · Door material · Door Type*. Materials are read from the **Fusion physical material** on the panels inside and split by panel name (see below). The dialog is a preflight: it tells you how many cabinets are missing a type or a material *before* you pick a filename. |
 
@@ -62,25 +62,37 @@ than on one cabinet at a time.
 
 - **Component classification.** Every WoodCraft component carries invisible custom
   attributes under one group (`WoodCraft`), the key one being `category`
-  (`panel` or `hardware`). Carcass Maker and Shelf Creator auto‑classify what they
-  build as panels; **Set Type** classifies existing geometry (and prices hardware).
+  (`panel`, `hardware` or `countertop`). Carcass Maker and Shelf Creator
+  auto‑classify what they build as panels, Countertop stamps its own category;
+  **Set Type** classifies existing geometry (and prices hardware).
   Output commands collect strictly by this category — no geometry guessing — so
   panels and purchased items stay cleanly separated, even across referenced cabinets
   in a larger assembly. The scheme is an extensible key/value store
   (`commands/wc_attrs.py`); new commands add keys without migrations.
+- **A worktop is not a panel.** `countertop` is its own category because a slab is
+  measured, priced by area and edgebanded exactly like a sheet good but is *bought*
+  as a slab or a cut length — so it belongs on the BOM and never on a nesting
+  diagram. `config.WC_SHEET_LIKE` is the tuple that says "costed like a panel";
+  `WC_CAT_PANEL` alone is what says "nested like a panel". Anything else that
+  should be billed by area but never nested joins `WC_SHEET_LIKE` rather than
+  becoming a second flavour of panel.
 - **Carcass vs. door is decided by NAME.** Kitchen Export calls a panel a *front*
-  when its component name contains `door`, `drawer` or `front`
-  (`config.DOOR_PANEL_KEYWORDS`, case‑insensitive); everything else is *carcass*.
-  Name‑based rather than a new tag, so it works on cabinets modelled before this
-  this command existed — renaming a component is cheaper than re‑tagging it. Edit the
-  tuple in `config.py` to match your own naming.
+  when its component name contains `door`, `drawer front` or `front`
+  (`config.DOOR_PANEL_KEYWORDS`, case‑insensitive) **and** contains nothing from
+  `config.DOOR_PANEL_EXCLUDE`; everything else is *carcass*. The exclusion list
+  earns its place: a drawer BOX is carcass material, and its parts are universally
+  called "Drawer Side" / "Drawer Back" / "Drawer Bottom", as are the rails and
+  stretchers across the front of a carcass. Name‑based rather than a new tag, so it
+  works on cabinets modelled before this command existed — renaming a component is
+  cheaper than re‑tagging it. Edit either tuple in `config.py` to match your own
+  naming; prefer adding to the exclusions over deleting a keyword.
 - **What counts as a cabinet.** Kitchen Export takes the **top‑level components**
   of the design (the cabinets placed in the kitchen assembly) that are assemblies
   or have been specced with Cabinet Data. Countertops, loose panels and purchased
-  hardware sitting at the top level are skipped — they carry a `panel` /
-  `hardware` category and are parts *of* the kitchen, not cabinets *in* it. One
-  row per placed cabinet, so three identical base units give three rows; group
-  them in Excel if you want quantities.
+  hardware sitting at the top level are skipped — anything carrying a `panel` /
+  `countertop` / `hardware` category is a part *of* the kitchen, not a cabinet *in*
+  it. One row per placed cabinet, so three identical base units give three rows;
+  group them in Excel if you want quantities.
 - **Cabinet width is measured locally.** The X extent of the cabinet component's
   *own* bounding box, not the world one, so a cabinet rotated onto the other leg
   of an L‑shaped kitchen still reports its width and not its depth. If one reads
@@ -256,8 +268,10 @@ append it to the `commands` list, and drop icons in its `resources/`. See
   the component, so all copies of one cabinet share a spec. Two identical boxes
   needing different finishes must be made independent first.
 - **Kitchen Export reads names.** The door/carcass split relies on your panel
-  naming (`door` / `drawer` / `front`). Cabinets whose panels are all called
-  "Panel 1..6" will report everything as carcass.
+  naming (`door` / `drawer front` / `front`, minus `config.DOOR_PANEL_EXCLUDE`).
+  Cabinets whose panels are all called "Panel 1..6" will report everything as
+  carcass, and a front named only "Drawer 1" reads as carcass too — call it
+  "Drawer Front 1" (or add your own word to the keywords).
 - **UI/icons** are maintained partly by separate passes; see `docs/UI_GUIDE.md`.
   The three Kitchen icons are rendered by `generate_icons_kitchen.py` (dev‑only,
   Pillow, `.gitignore`d — the PNGs are what ships).

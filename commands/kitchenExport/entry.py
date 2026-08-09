@@ -27,8 +27,9 @@ What counts as a cabinet
 ------------------------
 A direct child of the root that is an assembly (it has sub-components) or that
 has been specced with Cabinet Data. Countertops, loose panels and purchased
-hardware sitting at the top level are skipped — they are tagged as WoodCraft
-panels/hardware and are not cabinets.
+hardware sitting at the top level are skipped — anything carrying a WoodCraft
+category (`panel`, `countertop`, `hardware`) is a part of the kitchen, not a
+cabinet in it.
 
 One row per placed cabinet, not per unique model: three identical base units
 give three rows, so the sheet is a build list you can tick off. Group them in
@@ -73,6 +74,7 @@ XLSX_HEADERS = ['Cabinet model name', 'Cabinet width (mm)', 'Carcass material',
 XLSX_WIDTHS = [38, 18, 30, 14, 30, 12]
 
 local_handlers = []
+_rows_cache = None      # (rows, missing) for the open dialog — see _rows_once()
 
 
 def start():
@@ -90,6 +92,10 @@ def stop():
 
 def command_created(args: adsk.core.CommandCreatedEventArgs):
     futil.log(f'{CMD_NAME} Command Created Event')
+
+    global _rows_cache
+    _rows_cache = None      # a fresh dialog always re-reads the design
+
     inputs = args.command.commandInputs
 
     # The command has nothing to configure, so the dialog is a preflight report:
@@ -120,12 +126,16 @@ def _is_cabinet(occurrence) -> bool:
     """A top-level occurrence that represents a cabinet.
 
     An assembly (it has sub-components) or anything already specced with Cabinet
-    Data. Explicitly NOT anything tagged as a WoodCraft panel or hardware item —
-    that rules out countertops, loose shelves and purchased parts dropped at the
-    top level, which are parts of the kitchen but not cabinets in it.
+    Data. Explicitly NOT anything carrying a WoodCraft category — panel, worktop
+    or purchased hardware — which rules out countertops, loose shelves and bought
+    parts dropped at the top level: all of them are parts of the kitchen, none of
+    them is a cabinet in it. Countertops are named here rather than left to the
+    "has no children" test, because a worktop is a classified item in its own
+    right and should never depend on how it happens to be modelled.
     """
     comp = occurrence.component
-    if wc_attrs.is_panel(comp) or wc_attrs.is_hardware(comp):
+    if (wc_attrs.is_panel(comp) or wc_attrs.is_hardware(comp)
+            or wc_attrs.is_countertop(comp)):
         return False
     if wc_attrs.has_cabinet_data(comp):
         return True
@@ -154,13 +164,14 @@ def _cabinet_panels(occurrence):
 
     Prefers WoodCraft's own classification; falls back to "a leaf component that
     owns bodies" so a cabinet modelled by hand — or imported — still reports its
-    materials instead of coming back blank. Hardware is always excluded: a
-    purchased hinge's material must not decide the carcass column.
+    materials instead of coming back blank. Hardware and worktops are always
+    excluded: neither a purchased hinge's material nor a slab of granite may
+    decide the carcass column.
     """
     found = []
     for occ in _descendants(occurrence):
         comp = occ.component
-        if wc_attrs.is_hardware(comp):
+        if wc_attrs.is_hardware(comp) or wc_attrs.is_countertop(comp):
             continue
         if not wc_attrs.is_panel(comp):
             try:
@@ -197,7 +208,12 @@ def _width_mm(comp, cache):
 
 def _rows(design):
     """(rows, missing_spec) — the spreadsheet body plus a count of un-specced
-    cabinets, so the dialog can warn before anything is written."""
+    cabinets, so the dialog can warn before anything is written.
+
+    Cached for the life of the dialog by _rows_once(): the walk calls
+    Component.boundingBox once per distinct cabinet, which Fusion answers by
+    touching every body in that subtree, so doing it twice (preflight, then
+    export) doubles the one genuinely expensive thing this command does."""
     root = design.rootComponent
     cache = {}
     rows = []
@@ -221,13 +237,26 @@ def _rows(design):
     return rows, missing
 
 
+def _rows_once(design):
+    """_rows() for THIS dialog, computed at most once.
+
+    The preflight summary and the export itself want the same table, and the
+    design cannot change while a modal command dialog is open, so the second walk
+    is pure cost. Reset in command_created, so re-running the command always
+    re-reads the design."""
+    global _rows_cache
+    if _rows_cache is None:
+        _rows_cache = _rows(design)
+    return _rows_cache
+
+
 def _summary_html():
     """The preflight text shown in the dialog."""
     design = _active_design()
     if not design:
         return '<b>No active design.</b>'
     try:
-        rows, missing = _rows(design)
+        rows, missing = _rows_once(design)
     except Exception:
         futil.handle_error('Kitchen Export: summary')
         return '<b>Could not read this design.</b>'
@@ -271,7 +300,7 @@ def _export():
         ui.messageBox('No active design.')
         return
 
-    rows, missing = _rows(design)
+    rows, missing = _rows_once(design)
     if not rows:
         ui.messageBox('No cabinets found at the top level of this design.')
         return
@@ -296,5 +325,6 @@ def _export():
 
 def command_destroy(args: adsk.core.CommandEventArgs):
     futil.log(f'{CMD_NAME} Command Destroy Event')
-    global local_handlers
+    global local_handlers, _rows_cache
+    _rows_cache = None      # don't hold Fusion objects past the dialog
     local_handlers = []

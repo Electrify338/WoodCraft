@@ -86,7 +86,15 @@ WC_GROUP = 'WoodCraft'
 WC_CATEGORY = 'category'
 WC_CAT_PANEL = 'panel'          # sheet-good panel → cut list, nesting, BOM panels
 WC_CAT_HARDWARE = 'hardware'    # purchased item   → BOM purchased-items only
-WC_CATEGORIES = (WC_CAT_PANEL, WC_CAT_HARDWARE)
+WC_CAT_COUNTERTOP = 'countertop'  # worktop slab   → BOM + banding, NOT nested
+WC_CATEGORIES = (WC_CAT_PANEL, WC_CAT_HARDWARE, WC_CAT_COUNTERTOP)
+
+# Categories that are measured, priced and edgebanded like a sheet good. NESTING
+# is what separates them: a panel is cut FROM a stock sheet, so it belongs in the
+# cut list and on a nesting diagram; a worktop is bought as a slab or a cut length
+# and only needs to appear on the bill. Anything that should be costed by area but
+# never nested joins this tuple rather than becoming a second kind of 'panel'.
+WC_SHEET_LIKE = (WC_CAT_PANEL, WC_CAT_COUNTERTOP)
 
 # Hardware unit cost (string-encoded float; currency is the user's own). Read back
 # by the BOM and Cut List. Only meaningful on hardware components. Panels never
@@ -130,7 +138,22 @@ WC_FINISH_TYPES = (WC_FINISH_PAINTED, WC_FINISH_VENEER)
 # it works on cabinets modelled before this fork existed, and renaming a
 # component is cheaper than re-tagging it. Extend the tuple to suit your naming
 # (e.g. add 'facade', 'front panel' is already covered by 'front').
-DOOR_PANEL_KEYWORDS = ('door', 'drawer', 'front')
+#
+# 'drawer front' rather than a bare 'drawer': a drawer BOX is made of ordinary
+# carcass material and its parts are routinely called "Drawer Side", "Drawer
+# Back", "Drawer Bottom". Matching bare 'drawer' put all of those in the Door
+# column and — because the merge ranks by how many panels voted — pushed the real
+# door material down the cell behind the drawer-box material.
+DOOR_PANEL_KEYWORDS = ('door', 'drawer front', 'front')
+
+# Checked FIRST and wins over the keywords above, for names that contain a
+# front-ish word but describe a carcass part: the drawer box's own parts, and the
+# rails/stretchers that sit at the front of a carcass. This is the escape hatch —
+# if your naming puts a keyword on something that isn't a front, add it here
+# rather than removing the keyword.
+DOOR_PANEL_EXCLUDE = ('drawer side', 'drawer back', 'drawer bottom',
+                      'drawer box', 'drawer runner', 'drawer rail',
+                      'front rail', 'front stretcher')
 
 # Future keys plug in here with no core change, e.g.:
 #   WC_FINISH = 'finish'; WC_PART_NO = 'partNumber'

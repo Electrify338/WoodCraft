@@ -59,7 +59,7 @@ def remove_value(component, name) -> bool:
 # Category
 # ---------------------------------------------------------------------------
 def get_category(component):
-    """'panel' | 'hardware' | None (unclassified)."""
+    """'panel' | 'hardware' | 'countertop' | None (unclassified)."""
     return get_value(component, config.WC_CATEGORY)
 
 
@@ -73,6 +73,18 @@ def is_panel(component) -> bool:
 
 def is_hardware(component) -> bool:
     return get_category(component) == config.WC_CAT_HARDWARE
+
+
+def is_countertop(component) -> bool:
+    return get_category(component) == config.WC_CAT_COUNTERTOP
+
+
+def is_sheet_like(component) -> bool:
+    """Panel OR countertop — anything measured, priced by area and edgebanded like
+    a sheet good. Use this (not is_panel) where the question is "does this get
+    costed / banded"; use is_panel where the question is "does this get NESTED",
+    which is the one thing a worktop doesn't do."""
+    return get_category(component) in config.WC_SHEET_LIKE
 
 
 # ---------------------------------------------------------------------------

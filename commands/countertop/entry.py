@@ -17,8 +17,11 @@ height.
 
 One wall face = one run = one component with one body, named "Countertop" (or
 "Countertop 1..N" for an L- or U-shaped kitchen), plus a "Backsplash N" beside
-it. Each is tagged as a WoodCraft panel, so it flows into the BOM and the cut
-list like any other sheet good — set its Fusion material and it prices itself.
+it. Each is tagged with the **countertop** category, not `panel`: a worktop is
+priced by area and edgebanded exactly like a sheet good, but it is bought as a
+slab or a cut length rather than nested out of a stock sheet, so it belongs on
+the BOM and not on a nesting diagram. Set its Fusion material and it prices
+itself from the Sheets library like anything else.
 
 Which side panels belong to which run is worked out from geometry (see
 commands/countertop_geom.py), so an L-shaped kitchen can be done in one go:
@@ -50,6 +53,7 @@ import adsk.core
 import adsk.fusion
 
 from .. import ui_helpers
+from .. import wc_attrs
 from .. import countertop_geom as geom
 from ...lib import fusionAddInUtils as futil
 from ... import config
@@ -493,7 +497,9 @@ def _build_piece(root, piece):
     occ = root.occurrences.addNewComponent(adsk.core.Matrix3D.create())
     comp = occ.component
     comp.name = piece['name']
-    ui_helpers.tag_as_panel(comp)
+    # Its own category, not 'panel' — costed and banded like a sheet good, but
+    # kept out of the cut list and the nest (see config.WC_SHEET_LIKE).
+    wc_attrs.set_category(comp, config.WC_CAT_COUNTERTOP)
 
     # Sketch on a construction plane at the piece's underside, so the extrude is
     # a plain positive distance and the solid starts exactly there.

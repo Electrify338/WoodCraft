@@ -246,7 +246,11 @@ def _panel_occurrences(design, scope_occs):
     """[(occurrence|None, component)] for every classified panel under the scope
     occurrences (or the whole design when scope is empty). Occurrences are root-
     context proxies, so their faces/bodies proxy into world space. None stands
-    for the root component itself (a part document)."""
+    for the root component itself (a part document).
+
+    Countertops count too (wc_attrs.is_sheet_like, not is_panel): a worktop's
+    exposed front edge is banded exactly like a panel's, even though the slab
+    itself is never nested."""
     result = []
     seen = set()    # occurrence fullPathName / root marker — guards double scope picks
 
@@ -259,7 +263,7 @@ def _panel_occurrences(design, scope_occs):
 
     def walk(occ):
         comp = occ.component
-        if wc_attrs.is_panel(comp):
+        if wc_attrs.is_sheet_like(comp):
             add(occ, comp)
         try:
             children = occ.childOccurrences
@@ -273,7 +277,7 @@ def _panel_occurrences(design, scope_occs):
             walk(occ)
     else:
         root = design.rootComponent
-        if wc_attrs.is_panel(root):
+        if wc_attrs.is_sheet_like(root):
             add(None, root)
         occs = root.occurrences
         for i in range(occs.count):
