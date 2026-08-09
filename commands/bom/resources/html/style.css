@@ -12,6 +12,7 @@
   --hwType: #B07AA1;
   --asmType: #9aa0a8;
   --ebType: #E8944A;       /* edgeband orange */
+  --ctType: #5FA88C;       /* countertop green — reads apart from panel yellow */
 }
 
 * { box-sizing: border-box; }
@@ -91,6 +92,7 @@ main { flex: 1; min-height: 0; overflow: auto; }
 .badge.Hardware { color: var(--hwType); }
 .badge.Part { color: var(--panelType); }
 .badge.Edgeband { color: var(--ebType); }
+.badge.Countertop { color: var(--ctType); }
 
 /* Edgeband detail sub-rows (under an expanded panel) read as secondary. */
 .row.ebrow { background: #ffffff06; }

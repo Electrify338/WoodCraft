@@ -404,8 +404,9 @@ def collect_instances(design, root=None, categories=None, root_name=''):
             return
         dims = panel_dims_mm(comp)
         if dims is None:
-            # A panel needs a measurable size; a purchased item is still counted.
-            if category == config.WC_CAT_PANEL:
+            # A sheet good (panel or worktop) needs a measurable size; a purchased
+            # item is still counted.
+            if category in config.WC_SHEET_LIKE:
                 return
             dims = (0.0, 0.0, 0.0)
         instances.append(_make_instance(owner, comp, dims, category, parent))
@@ -442,7 +443,12 @@ def collect_instances(design, root=None, categories=None, root_name=''):
 
 def collect_panel_instances(design, root=None, root_name=''):
     """Panels only — thin wrapper over collect_instances() for the cut list / nest
-    and other panel-centric callers."""
+    and other panel-centric callers.
+
+    Strictly WC_CAT_PANEL, so COUNTERTOPS are deliberately excluded: a worktop is
+    bought as a slab or a cut length, not nested out of a stock sheet, and letting
+    one into the nest would demand a 40 mm "sheet" in the library and blow the
+    yield figures. Countertops still reach the BOM through collect_instances()."""
     return collect_instances(design, root=root, categories={config.WC_CAT_PANEL},
                              root_name=root_name)
 
@@ -516,7 +522,14 @@ def _node_type(component, has_children):
         return 'Panel'
     if category == config.WC_CAT_HARDWARE:
         return 'Hardware'
+    if category == config.WC_CAT_COUNTERTOP:
+        return 'Countertop'
     return 'Assembly' if has_children else 'Part'
+
+
+# BOM row types costed by area from the Sheets library — the node-level mirror of
+# config.WC_SHEET_LIKE, since the cost walk sees `type` labels, not categories.
+SHEET_LIKE_TYPES = ('Panel', 'Countertop')
 
 
 def build_tree(design, root=None):
@@ -587,7 +600,7 @@ def build_tree(design, root=None):
         if _priced_hardware(component):
             absorb(children)
             return wc_attrs.get_cost(component), 'set'
-        if node['type'] == 'Panel':
+        if node['type'] in SHEET_LIKE_TYPES:
             rate = rate_for(node['material'], node['T'])
             if rate is None or node['L'] <= 0:
                 return None, None
@@ -745,7 +758,7 @@ def tree_cost_totals(nodes):
                     agg['priced'] = False
             if kind == 'est':
                 totals['panels_est'] += n['unit_cost'] * eff_qty
-            elif n['type'] == 'Panel' and kind is None:
+            elif n['type'] in SHEET_LIKE_TYPES and kind is None:
                 totals['unpriced_panels'] += eff_qty
             walk(n['children'], eff_qty)
 

@@ -46,6 +46,13 @@ HARDWARE_PANEL_NAME = 'Hardware'
 OUTPUT_PANEL_ID = f'{COMPANY_NAME}_output_panel'
 OUTPUT_PANEL_NAME = 'Output'
 
+# Kitchen — whole-kitchen commands that act on an ASSEMBLED run of cabinets
+# rather than on one cabinet: the worktop that spans them, the per-cabinet finish
+# spec, and the kitchen schedule that falls out of both. Kept in their own panel
+# because they are the last step of the workflow, after the boxes exist.
+KITCHEN_PANEL_ID = f'{COMPANY_NAME}_kitchen_panel'
+KITCHEN_PANEL_NAME = 'Kitchen'
+
 # Developer / debug tools — kept in their own segment so they're easy to find
 # and easy to strip out before release.
 DEV_PANEL_ID = f'{COMPANY_NAME}_dev_panel'
@@ -79,7 +86,15 @@ WC_GROUP = 'WoodCraft'
 WC_CATEGORY = 'category'
 WC_CAT_PANEL = 'panel'          # sheet-good panel → cut list, nesting, BOM panels
 WC_CAT_HARDWARE = 'hardware'    # purchased item   → BOM purchased-items only
-WC_CATEGORIES = (WC_CAT_PANEL, WC_CAT_HARDWARE)
+WC_CAT_COUNTERTOP = 'countertop'  # worktop slab   → BOM + banding, NOT nested
+WC_CATEGORIES = (WC_CAT_PANEL, WC_CAT_HARDWARE, WC_CAT_COUNTERTOP)
+
+# Categories that are measured, priced and edgebanded like a sheet good. NESTING
+# is what separates them: a panel is cut FROM a stock sheet, so it belongs in the
+# cut list and on a nesting diagram; a worktop is bought as a slab or a cut length
+# and only needs to appear on the bill. Anything that should be costed by area but
+# never nested joins this tuple rather than becoming a second kind of 'panel'.
+WC_SHEET_LIKE = (WC_CAT_PANEL, WC_CAT_COUNTERTOP)
 
 # Hardware unit cost (string-encoded float; currency is the user's own). Read back
 # by the BOM and Cut List. Only meaningful on hardware components. Panels never
@@ -105,6 +120,40 @@ WC_PURCHASE_SEPARATE = 'separate'
 # to price the summed edge lengths (cost per metre lives in the library, never
 # on the face — same philosophy as panel costs being derived, never stored).
 WC_EDGEBAND = 'edgeband'
+
+# Cabinet finish spec — stamped on a CABINET component (the assembly), not on its
+# panels, by the Cabinet Data command. Read back by Kitchen Export. Two keys
+# because a cabinet is routinely built with a veneer carcass and painted doors
+# (or the reverse), so one "finish" value would lose information.
+WC_CARCASS_TYPE = 'carcassType'
+WC_DOOR_TYPE = 'doorType'
+WC_FINISH_PAINTED = 'Painted'
+WC_FINISH_VENEER = 'Veneer'
+WC_FINISH_TYPES = (WC_FINISH_PAINTED, WC_FINISH_VENEER)
+
+# How Kitchen Export tells a door/front panel from a carcass panel: a panel whose
+# COMPONENT NAME contains any of these words (case-insensitive) is a front, and
+# its material feeds the "Door material" column; every other panel in the cabinet
+# feeds "Carcass material". Name-based rather than attribute-based on purpose —
+# it works on cabinets modelled before this fork existed, and renaming a
+# component is cheaper than re-tagging it. Extend the tuple to suit your naming
+# (e.g. add 'facade', 'front panel' is already covered by 'front').
+#
+# 'drawer front' rather than a bare 'drawer': a drawer BOX is made of ordinary
+# carcass material and its parts are routinely called "Drawer Side", "Drawer
+# Back", "Drawer Bottom". Matching bare 'drawer' put all of those in the Door
+# column and — because the merge ranks by how many panels voted — pushed the real
+# door material down the cell behind the drawer-box material.
+DOOR_PANEL_KEYWORDS = ('door', 'drawer front', 'front')
+
+# Checked FIRST and wins over the keywords above, for names that contain a
+# front-ish word but describe a carcass part: the drawer box's own parts, and the
+# rails/stretchers that sit at the front of a carcass. This is the escape hatch —
+# if your naming puts a keyword on something that isn't a front, add it here
+# rather than removing the keyword.
+DOOR_PANEL_EXCLUDE = ('drawer side', 'drawer back', 'drawer bottom',
+                      'drawer box', 'drawer runner', 'drawer rail',
+                      'front rail', 'front stretcher')
 
 # Future keys plug in here with no core change, e.g.:
 #   WC_FINISH = 'finish'; WC_PART_NO = 'partNumber'

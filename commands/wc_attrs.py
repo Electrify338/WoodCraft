@@ -59,7 +59,7 @@ def remove_value(component, name) -> bool:
 # Category
 # ---------------------------------------------------------------------------
 def get_category(component):
-    """'panel' | 'hardware' | None (unclassified)."""
+    """'panel' | 'hardware' | 'countertop' | None (unclassified)."""
     return get_value(component, config.WC_CATEGORY)
 
 
@@ -73,6 +73,18 @@ def is_panel(component) -> bool:
 
 def is_hardware(component) -> bool:
     return get_category(component) == config.WC_CAT_HARDWARE
+
+
+def is_countertop(component) -> bool:
+    return get_category(component) == config.WC_CAT_COUNTERTOP
+
+
+def is_sheet_like(component) -> bool:
+    """Panel OR countertop — anything measured, priced by area and edgebanded like
+    a sheet good. Use this (not is_panel) where the question is "does this get
+    costed / banded"; use is_panel where the question is "does this get NESTED",
+    which is the one thing a worktop doesn't do."""
+    return get_category(component) in config.WC_SHEET_LIKE
 
 
 # ---------------------------------------------------------------------------
@@ -124,3 +136,37 @@ def get_purchase_mode(component):
 
 def set_purchase_mode(component, mode) -> bool:
     return set_value(component, config.WC_PURCHASE, mode)
+
+
+# ---------------------------------------------------------------------------
+# Cabinet finish spec (Cabinet Data → Kitchen Export)
+# ---------------------------------------------------------------------------
+# Stamped on the CABINET component — the assembly, not its panels — so one write
+# describes the whole box. Because attributes live on the component, every
+# occurrence of the same cabinet reports the same spec; a cabinet that needs a
+# different finish must be a different component (Fusion's normal "make
+# independent" rule), which is also what makes the export's per-model rows right.
+def get_carcass_type(component, default=''):
+    """'Painted' | 'Veneer' | `default` when the cabinet hasn't been specced."""
+    return get_value(component, config.WC_CARCASS_TYPE, default)
+
+
+def set_carcass_type(component, value) -> bool:
+    return set_value(component, config.WC_CARCASS_TYPE, value)
+
+
+def get_door_type(component, default=''):
+    """'Painted' | 'Veneer' | `default` when the cabinet hasn't been specced."""
+    return get_value(component, config.WC_DOOR_TYPE, default)
+
+
+def set_door_type(component, value) -> bool:
+    return set_value(component, config.WC_DOOR_TYPE, value)
+
+
+def has_cabinet_data(component) -> bool:
+    """True if either finish key is set — i.e. the user has specced this cabinet
+    with the Cabinet Data command. Kitchen Export uses this to keep a specced
+    component in the schedule even when it wouldn't otherwise look like a
+    cabinet (e.g. a single-body panel-run modelled without sub-components)."""
+    return bool(get_carcass_type(component) or get_door_type(component))
