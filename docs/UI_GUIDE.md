@@ -31,9 +31,7 @@ Design workspace (FusionSolidEnvironment)
     │   ├── Insert Hardware  (button)      id = WoodCraft_insertHardware
     │   └── Sculpt           (button)      id = WoodCraft_sculpt
     ├── Panel: "Kitchen"                   id = WoodCraft_kitchen_panel
-    │   ├── Countertop       (button)      id = WoodCraft_countertop
-    │   ├── Cabinet Data     (button)      id = WoodCraft_cabinetData
-    │   └── Kitchen Export   (button)      id = WoodCraft_kitchenExport
+    │   └── Countertop       (button)      id = WoodCraft_countertop
     ├── Panel: "Output"                    id = WoodCraft_output_panel
     │   ├── Sheets           (palette)     id = WoodCraft_sheets
     │   ├── Cut List & Nest  (button)      id = WoodCraft_cutList
@@ -93,11 +91,9 @@ take, point `ICON_FOLDER` at a path Fusion has never read (e.g. a
 | Insert Hardware  | `insertHardware/`                  | `WoodCraft_insertHardware` |
 | Sculpt           | `sculpt/`                          | `WoodCraft_sculpt`     |
 | Countertop       | `countertop/`                      | `WoodCraft_countertop` |
-| Cabinet Data     | `cabinetData/`                     | `WoodCraft_cabinetData` |
 | Sheets           | `sheets/`                          | `WoodCraft_sheets`     |
 | Cut List & Nest  | `cutList/`                         | `WoodCraft_cutList`    |
 | BOM              | `bom/`                             | `WoodCraft_bom`        |
-| Kitchen Export   | `kitchenExport/`                   | `WoodCraft_kitchenExport` |
 | Settings         | `settings/`                        | `WoodCraft_settings`   |
 | Inspect Panels   | `inspectPanels/`                   | `WoodCraft_inspectPanels` |
 
@@ -122,20 +118,18 @@ foreign:
 
 | Convention | Used by | Rules |
 |---|---|---|
-| **Isometric solid** | Carcass Maker, Trim, Shelf Creator, Set Type's cube, **Countertop**, **Cabinet Data** | **No keyline at all.** Depth comes only from three face shades — top lightest (`#F3D573` / `#E8E8E8`), then the left face (`#E5C05B` / `#BFBFBF`), then the right (`#CFA644` / `#A3A3A3`). 2:1 isometric, x to the lower-right, y to the lower-left, z up. |
-| **Flat, front-on** | Cut List, BOM, **Kitchen Export** | Thin dark keyline `#555555` at ~2 px (at 64), near-white `#FAFAFA` body, yellow blocks for content. |
+| **Isometric solid** | Carcass Maker, Trim, Shelf Creator, Set Type's cube, **Countertop** | **No keyline at all.** Depth comes only from three face shades — top lightest (`#F3D573` / `#E8E8E8`), then the left face (`#E5C05B` / `#BFBFBF`), then the right (`#CFA644` / `#A3A3A3`). 2:1 isometric, x to the lower-right, y to the lower-left, z up. |
+| **Flat, front-on** | Cut List, BOM | Thin dark keyline `#555555` at ~2 px (at 64), near-white `#FAFAFA` body, yellow blocks for content. |
 
 Artwork **fills the frame** — the stock icons run to within ~3 px of the 64 px
 edge. Draw oversize (8×) and downsample with LANCZOS so 16 px stays legible.
 
-> The Kitchen panel's three icons come from
+> The Kitchen panel's icon comes from
 > [`generate_icons_kitchen.py`](../generate_icons_kitchen.py) — same idea as
 > `generate_icons.py`, also dev-only and `.gitignore`d. It auto-fits each
 > composition to the frame, so editing the shapes can't leave the artwork small
 > or off-centre.
-> Icons: **Countertop** = grey carcass + yellow slab + yellow upstand;
-> **Cabinet Data** = yellow cabinet + orange spec tag; **Kitchen Export** = table
-> + orange arrow leaving to the right.
+> Icon: **Countertop** = grey carcass + yellow slab + yellow upstand.
 
 There is also a top-level [`AddInIcon.svg`](../AddInIcon.svg) (referenced by
 `WoodCraft.manifest`) used as the add-in's icon in the Scripts & Add-Ins dialog.
@@ -252,8 +246,8 @@ design's real material names come from `panels.design_panel_materials(design)` a
 Command `CMD_ID`s (each in its own `entry.py`, all prefixed `WoodCraft`):
 `_carcassMaker`, `_trim`, `_editThickness`, `_shelf`, `_lineBoring`, `_edgeband`,
 `_convertPanel` (display "Set Type"), `_insertHardware`, `_sculpt`, `_countertop`,
-`_cabinetData`, `_sheets` (+ palette `…_sheets_palette`), `_cutList`, `_bom`
-(+ palette `…_bom_palette`), `_kitchenExport`, `_settings`, `_inspectPanels`.
+`_sheets` (+ palette `…_sheets_palette`), `_cutList`, `_bom`
+(+ palette `…_bom_palette`), `_settings`, `_inspectPanels`.
 
 > `COMPANY_NAME` prefixes every id, so nothing else may hard-code it. The
 > component attribute group (`WC_GROUP`) and the `%APPDATA%` data folder are

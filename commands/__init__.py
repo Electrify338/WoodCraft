@@ -14,11 +14,9 @@ from .edgeband import entry as edgeband
 from .insertHardware import entry as insertHardware
 from .sculpt import entry as sculpt
 from .countertop import entry as countertop
-from .cabinetData import entry as cabinetData
 from .sheets import entry as sheets
 from .cutList import entry as cutList
 from .bom import entry as bom
-from .kitchenExport import entry as kitchenExport
 from .settings import entry as settings
 from .inspectPanels import entry as inspectPanels  # DEV — remove later
 
@@ -34,11 +32,9 @@ commands = [
     insertHardware,
     sculpt,
     countertop,
-    cabinetData,
     sheets,
     cutList,
     bom,
-    kitchenExport,
     settings,
     inspectPanels,  # DEV — remove later
 ]

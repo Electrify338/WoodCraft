@@ -121,39 +121,5 @@ WC_PURCHASE_SEPARATE = 'separate'
 # on the face — same philosophy as panel costs being derived, never stored).
 WC_EDGEBAND = 'edgeband'
 
-# Cabinet finish spec — stamped on a CABINET component (the assembly), not on its
-# panels, by the Cabinet Data command. Read back by Kitchen Export. Two keys
-# because a cabinet is routinely built with a veneer carcass and painted doors
-# (or the reverse), so one "finish" value would lose information.
-WC_CARCASS_TYPE = 'carcassType'
-WC_DOOR_TYPE = 'doorType'
-WC_FINISH_PAINTED = 'Painted'
-WC_FINISH_VENEER = 'Veneer'
-WC_FINISH_TYPES = (WC_FINISH_PAINTED, WC_FINISH_VENEER)
-
-# How Kitchen Export tells a door/front panel from a carcass panel: a panel whose
-# COMPONENT NAME contains any of these words (case-insensitive) is a front, and
-# its material feeds the "Door material" column; every other panel in the cabinet
-# feeds "Carcass material". Name-based rather than attribute-based on purpose —
-# it works on cabinets modelled before this fork existed, and renaming a
-# component is cheaper than re-tagging it. Extend the tuple to suit your naming
-# (e.g. add 'facade', 'front panel' is already covered by 'front').
-#
-# 'drawer front' rather than a bare 'drawer': a drawer BOX is made of ordinary
-# carcass material and its parts are routinely called "Drawer Side", "Drawer
-# Back", "Drawer Bottom". Matching bare 'drawer' put all of those in the Door
-# column and — because the merge ranks by how many panels voted — pushed the real
-# door material down the cell behind the drawer-box material.
-DOOR_PANEL_KEYWORDS = ('door', 'drawer front', 'front')
-
-# Checked FIRST and wins over the keywords above, for names that contain a
-# front-ish word but describe a carcass part: the drawer box's own parts, and the
-# rails/stretchers that sit at the front of a carcass. This is the escape hatch —
-# if your naming puts a keyword on something that isn't a front, add it here
-# rather than removing the keyword.
-DOOR_PANEL_EXCLUDE = ('drawer side', 'drawer back', 'drawer bottom',
-                      'drawer box', 'drawer runner', 'drawer rail',
-                      'front rail', 'front stretcher')
-
 # Future keys plug in here with no core change, e.g.:
 #   WC_FINISH = 'finish'; WC_PART_NO = 'partNumber'
