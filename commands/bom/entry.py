@@ -58,11 +58,19 @@ PALETTE_URL = pathlib.Path(os.path.join(
 # are sheet-library estimates (raw area × avg cost/m² + waste factor); hardware
 # costs are the values entered in Set Type.
 XLSX_HEADERS = ['No.', 'Part #', 'Name', 'Type', 'Length (mm)', 'Width (mm)',
-                'Thickness (mm)', 'Qty', 'Material', 'Unit cost', 'Total cost']
-XLSX_WIDTHS = [10, 18, 42, 12, 13, 13, 15, 6, 28, 11, 12]
+                'Thickness (mm)', 'Qty', 'Material', 'Appearance',
+                'Unit cost', 'Total cost', 'Code']
+XLSX_WIDTHS = [10, 18, 42, 12, 13, 13, 15, 6, 28, 24, 11, 12, 40]
 
 local_handlers = []
 palette_handlers = []
+
+# The tree the palette is currently displaying, kept so Export writes exactly
+# what's on screen instead of re-walking the whole model (a second multi-second
+# pass on a kitchen). Keyed by design name: a different active design means the
+# cache is for another document — rebuild rather than export the wrong model.
+_shown_tree = None
+_shown_design = None
 
 
 def start():
@@ -165,8 +173,11 @@ def _count_rows(tree):
 
 
 def _payload():
+    global _shown_tree, _shown_design
     design = _active_design()
     tree = panels.build_tree(design) if design else []
+    _shown_tree = tree if design else None
+    _shown_design = _design_name(design) if design else None
     return {
         'tree': tree,
         'design': _design_name(design) if design else '',
@@ -184,7 +195,7 @@ def _xlsx_rows(tree):
     billed-BOM totals block (panels estimate / hardware / edgeband / grand total).
 
     Costs are LIVE Excel formulas, so the numbers can be tweaked in the sheet:
-      - a priced row's Total (K) = Unit cost (J) × Qty (H); unit costs stay plain
+      - a priced row's Total (L) = Unit cost (K) × Qty (H); unit costs stay plain
         editable numbers,
       - an assembly's Unit cost sums its direct children's Total cells, so a change
         anywhere below rolls up through every enclosing cabinet,
@@ -195,10 +206,12 @@ def _xlsx_rows(tree):
         walk), so the whole bill recalculates from any edit.
     Cached values are written alongside each formula for non-calculating viewers;
     Excel itself recalculates on open. Columns: A No, B Part#, C Name, D Type,
-    E Length, F Width, G Thickness, H Qty, I Material, J Unit cost, K Total."""
+    E Length, F Width, G Thickness, H Qty, I Material, J Appearance,
+    K Unit cost, L Total, M Code. Assembly dims are W × H × D from the cabinet's
+    parameters; leaf dims are sorted extents."""
     rows = []
     blank = [''] * len(XLSX_HEADERS)
-    panel_terms = []    # 'K7*H3'-style: est-panel Total × enclosing Qty cells
+    panel_terms = []    # 'L7*H3'-style: est-panel Total × enclosing Qty cells
     hw_terms = []       # same for priced ('set') hardware rows
 
     def rownum():
@@ -206,7 +219,7 @@ def _xlsx_rows(tree):
 
     def emit(node, level, anc_qty):
         r = rownum()
-        has_dims = node['type'] != 'Assembly' and node['L'] > 0
+        has_dims = node['L'] > 0
         unit = node.get('unit_cost')
         cost = node.get('cost')
         kind = node.get('cost_kind')
@@ -220,8 +233,10 @@ def _xlsx_rows(tree):
             round(node['T'], 1) if has_dims else '',
             node['qty'],
             node['material'] or '',
+            node.get('appearance') or '',
             round(unit, 2) if unit is not None else '',
             '',
+            node.get('code') or '',
         ]
         rows.append((cells, level))
         child_rows = [emit(c, level + 1, anc_qty + [f'H{r}'])
@@ -230,14 +245,14 @@ def _xlsx_rows(tree):
         if kind == 'rollup':
             # SUM(), not '+': SUM ignores text, so a note typed into a child's
             # Total cell can't turn every enclosing assembly into #VALUE!.
-            cells[9] = xlsx_writer.Formula(
-                'SUM(' + ','.join(f'K{cr}' for cr in child_rows) + ')',
+            cells[10] = xlsx_writer.Formula(
+                'SUM(' + ','.join(f'L{cr}' for cr in child_rows) + ')',
                 round(unit, 2) if unit is not None else None)
-            cells[10] = xlsx_writer.Formula(f'ROUND(J{r}*H{r},2)', cached)
+            cells[11] = xlsx_writer.Formula(f'ROUND(K{r}*H{r},2)', cached)
         elif kind in ('set', 'est'):
-            cells[10] = xlsx_writer.Formula(f'ROUND(J{r}*H{r},2)', cached)
+            cells[11] = xlsx_writer.Formula(f'ROUND(K{r}*H{r},2)', cached)
             terms = hw_terms if kind == 'set' else panel_terms
-            terms.append('*'.join([f'K{r}'] + anc_qty))
+            terms.append('*'.join([f'L{r}'] + anc_qty))
         # 'absorbed' / unpriced rows keep the reference unit cost, no total.
         return r
 
@@ -264,7 +279,7 @@ def _xlsx_rows(tree):
             rate = sheets_store.edgeband_cost_per_m(
                 sheets_store.find_edgeband(catalogue, band['name']))
             if rate is not None:
-                cells[10] = xlsx_writer.Formula(
+                cells[11] = xlsx_writer.Formula(
                     f'ROUND(E{r}/1000*{rate}*{round(waste_mult, 4)},2)',
                     round(band['cost'], 2) if band['cost'] is not None else None)
             else:
@@ -283,7 +298,7 @@ def _xlsx_rows(tree):
             r = rownum()
             cells = list(blank)
             cells[2] = label
-            cells[10] = (xlsx_writer.Formula(expr, round(value, 2))
+            cells[11] = (xlsx_writer.Formula(expr, round(value, 2))
                          if expr is not None else round(value, 2))
             rows.append((cells, 0))
             return r
@@ -292,12 +307,12 @@ def _xlsx_rows(tree):
         r_panels = total_row('Panels (estimated)', sum_expr(panel_terms),
                              totals['panels_est'])
         r_hw = total_row('Hardware', sum_expr(hw_terms), totals['hardware'])
-        grand_refs = [f'K{r_panels}', f'K{r_hw}']
+        grand_refs = [f'L{r_panels}', f'L{r_hw}']
         if totals['edgebands']:
             r_eb = total_row('Edgeband (estimated)',
-                             sum_expr([f'K{x}' for x in band_rows]),
+                             sum_expr([f'L{x}' for x in band_rows]),
                              totals['edgeband'])
-            grand_refs.append(f'K{r_eb}')
+            grand_refs.append(f'L{r_eb}')
         total_row('TOTAL', '+'.join(grand_refs), totals['grand'])
         if totals['unpriced_panels']:
             cells = list(blank)
@@ -311,7 +326,13 @@ def _export():
     design = _active_design()
     if not design:
         return {'ok': False, 'error': 'No active design.'}
-    tree = panels.build_tree(design)
+    # Export what the palette shows (its last 'ready' load) — WYSIWYG, and it
+    # skips a second full model walk. Rebuild only when the active design isn't
+    # the one on screen (palette left open across a document switch).
+    if _shown_tree is not None and _shown_design == _design_name(design):
+        tree = _shown_tree
+    else:
+        tree = panels.build_tree(design)
     if not tree:
         return {'ok': False, 'error': 'This design has no components to export.'}
 

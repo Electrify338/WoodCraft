@@ -101,7 +101,8 @@ def _collect():
         agg[key]['qty'] += 1
 
     try:
-        fa_count = design.findAttributes(config.WC_GROUP, config.WC_CATEGORY).count
+        # findAttributes returns a plain list of Attribute, not an API collection.
+        fa_count = len(design.findAttributes(config.WC_GROUP, config.WC_CATEGORY))
     except Exception:
         fa_count = -1
     return fa_count, [agg[k] for k in order]

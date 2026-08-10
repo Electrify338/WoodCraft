@@ -51,8 +51,8 @@ main { flex: 1; min-height: 0; overflow: auto; }
    tracks from crushing/overflowing — below it, main scrolls horizontally. */
 .grid {
   display: grid;
-  grid-template-columns: 64px 94px minmax(150px, 1.6fr) 80px 128px minmax(90px, 1fr) 40px 72px 86px;
-  min-width: 892px;
+  grid-template-columns: 64px 94px minmax(150px, 1.6fr) 80px 128px minmax(90px, 1fr) minmax(90px, 1fr) 40px 72px 86px minmax(140px, 1.4fr);
+  min-width: 1138px;
   align-items: center; gap: 8px;
   padding: 5px 12px;
 }
@@ -79,7 +79,7 @@ main { flex: 1; min-height: 0; overflow: auto; }
 .c-unit { color: var(--muted); }
 .row.asm .c-cost { font-weight: 600; }
 .est { color: var(--accent); }
-.c-mat { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.c-mat, .c-app, .c-code { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .c-part { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .muted { color: var(--muted); }
 

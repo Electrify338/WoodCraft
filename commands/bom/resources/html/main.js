@@ -184,11 +184,13 @@ function renderEdgebandRows(box, node, level) {
       h('span', { class: 'c-mat' + (b.cost_per_m != null ? '' : ' est'),
                   title: b.cost_per_m != null ? 'Cost per metre from the Sheets library' : 'No cost per metre set in the Sheets library' },
         b.cost_per_m != null ? money(b.cost_per_m) + ' /m' : 'unpriced'),
+      h('span', { class: 'c-app' }, ''),
       h('span', { class: 'c-qty' }, String(node.qty)),
       h('span', { class: 'c-unit' + (unitTxt ? '' : ' muted'), title: unitTxt ? 'Banding cost per piece (incl. waste factor)' : '' }, unitTxt || '—'),
       h('span', { class: 'c-cost' + (total != null ? ' est' : ' muted'),
                   title: total != null ? 'Estimated: metres × cost/m + waste factor' : '' },
-        total != null ? '≈ ' + money(total) : '—')
+        total != null ? '≈ ' + money(total) : '—'),
+      h('span', { class: 'c-code' }, '')
     ));
   });
 }
@@ -201,10 +203,13 @@ function rowEl(node, level, hasChildren, open) {
   }, hasChildren ? (open ? '▾' : '▸') : '•');
   caret.style.marginLeft = (level * 16) + 'px';
 
-  const dims = (!isAsm && node.L > 0)
+  // Assemblies carry W × H × D from the cabinet's parameters; leaves carry
+  // sorted extents. Both render the same way once L is filled.
+  const dims = node.L > 0
     ? (fmt(node.L) + ' × ' + fmt(node.W) + ' × ' + fmt(node.T))
     : '';
   const mat = node.material || '';
+  const app = node.appearance || '';
   const part = node.part_number || '';
 
   // Cost cells. 'est' totals are sheet-derived estimates (≈); 'absorbed' means the
@@ -235,9 +240,11 @@ function rowEl(node, level, hasChildren, open) {
     h('span', { class: 'c-type' }, h('span', { class: 'badge ' + node.type }, node.type)),
     h('span', { class: 'c-dims' + (dims ? '' : ' muted') }, dims || '—'),
     h('span', { class: 'c-mat', title: mat }, mat || '—'),
+    h('span', { class: 'c-app', title: app }, app || '—'),
     h('span', { class: 'c-qty' }, String(node.qty)),
     h('span', { class: 'c-unit' + (unitTxt ? '' : ' muted') }, unitTxt || '—'),
-    h('span', { class: 'c-cost' + costClass, title: costTitle }, costTxt)
+    h('span', { class: 'c-cost' + costClass, title: costTitle }, costTxt),
+    h('span', { class: 'c-code', title: node.code || '' }, node.code || '—')
   );
 }
 

@@ -10,6 +10,8 @@ same-named panels — every cabinet has a "Left Panel".
 """
 
 import copy
+import json
+import os
 import time
 
 import adsk.core
@@ -41,6 +43,31 @@ def panel_material(component):
         mat = component.material
         if mat:
             return mat.name
+    except Exception:
+        pass
+    return ''
+
+
+def panel_appearance(component):
+    """Name of the Fusion appearance the component displays, or '' if none.
+
+    Mirrors panel_material: a single body's (effective) appearance wins — that is
+    what the viewport shows and what a melamine/veneer colour is dragged onto —
+    falling back to the appearance bound to the component's physical material.
+    The appearance is how decor/colour is told apart when several panels share
+    one physical material (e.g. all 'MDF', coloured by appearance)."""
+    try:
+        bodies = component.bRepBodies
+        if bodies.count == 1:
+            ap = bodies.item(0).appearance
+            if ap:
+                return ap.name
+    except Exception:
+        pass
+    try:
+        mat = component.material
+        if mat and mat.appearance:
+            return mat.appearance.name
     except Exception:
         pass
     return ''
@@ -145,6 +172,56 @@ def panel_dims_mm(component):
     return (ext[0], ext[1], ext[2])
 
 
+def assembly_dims_mm(component):
+    """(Width, Height, Depth) in millimetres for a cabinet ASSEMBLY, or None.
+
+    A parametric cabinet is inserted as a referenced design whose own user
+    parameters carry the cabinet's size — read Width/Height/Depth (case-
+    insensitive) from `component.parentDesign.userParameters`. Only trusted when
+    `component` IS that design's root component (i.e. the inserted cabinet
+    itself): for a local sub-assembly the parentDesign is the whole kitchen, and
+    its design-wide parameters would stamp every cabinet with the same size.
+    Falls back to Component.boundingBox extents sorted largest-first — expensive
+    (walks the whole subtree), so callers should cache per unique component."""
+    try:
+        owner = component.parentDesign
+        if owner.rootComponent == component:
+            vals = {}
+            for p in owner.userParameters:
+                n = p.name.strip().lower()
+                if n in ('width', 'height', 'depth') and n not in vals:
+                    vals[n] = p.value * 10.0        # internal cm → mm
+            if len(vals) == 3:
+                return (vals['width'], vals['height'], vals['depth'])
+    except Exception:
+        pass
+    try:
+        ext = _bbox_ext_mm(component.boundingBox)
+        if ext[0] > 0:
+            return (ext[0], ext[1], ext[2])
+    except Exception:
+        pass
+    return None
+
+
+def _fmt_code_mm(value):
+    """A millimetre value as a compact code segment: whole numbers without the
+    decimal ('600'), everything else to one decimal ('599.5')."""
+    r = round(value, 1)
+    return str(int(r)) if r == int(r) else str(r)
+
+
+def node_code(part_number, width_mm, material, appearance):
+    """The user's part-coding string: 'part number-width-material-appearance',
+    dash-joined with empty segments skipped (no leading/doubled dashes when a
+    piece has no part number or appearance)."""
+    segments = [part_number or '',
+                _fmt_code_mm(width_mm) if width_mm and width_mm > 0 else '',
+                material or '',
+                appearance or '']
+    return '-'.join(s for s in segments if s)
+
+
 def looks_like_panel(dims, min_t=3.0, max_t=40.0, min_ratio=4.0):
     """Geometry heuristic: a thin slab whose thickness is in sheet range and far
     smaller than its width/length (so it reads as sheet stock, not hardware).
@@ -209,6 +286,36 @@ def component_edgebands(component):
             length = face_edgeband_length_mm(face, thickness)
             if length > 0:
                 out[band] = out.get(band, 0.0) + length
+    return out
+
+
+def design_band_faces(design):
+    """{component name: [(band name, BRepFace), ...]} for every WC_EDGEBAND-tagged
+    face in `design`, from ONE findAttributes sweep — or None when the sweep isn't
+    available (the caller then falls back to component_edgebands' per-face scan).
+
+    This inverts the lookup: component_edgebands asks every face of a component
+    for its attribute (one API round-trip per face — a bored panel or a hinge has
+    hundreds), while findAttributes returns just the tagged faces in one call, so
+    untagged components cost nothing. Attributes live in the design that OWNS the
+    component, so for referenced (inserted) cabinets call this on the component's
+    parentDesign, not the assembly design. Orphaned attributes (face deleted)
+    are skipped."""
+    out = {}
+    try:
+        # findAttributes returns a plain list of Attribute (an AttributeVector) —
+        # NOT an API collection: it has no .count/.item(), only iteration/len().
+        for attr in design.findAttributes(config.WC_GROUP, config.WC_EDGEBAND):
+            try:
+                face = attr.parent
+                if face is None:    # entity deleted; attribute is orphaned
+                    continue
+                comp_name = face.body.parentComponent.name
+                out.setdefault(comp_name, []).append((attr.value, face))
+            except Exception:
+                continue
+    except Exception:
+        return None
     return out
 
 
@@ -487,31 +594,96 @@ def group_by_material_thickness(instances):
 # Hierarchical BOM tree (used by the BOM palette / Excel export)
 # ---------------------------------------------------------------------------
 # Component.partNumber on a cloud-referenced component is a BLOCKING data-service
-# fetch: with a bad connection each read stalls Fusion ~30 s and then raises
-# 'Failed to fetch Part number' — across a big model that reads as a total freeze.
-# One failure means the service is unreachable, so stop asking for a while and
-# let Part # come back blank instead of hanging the UI.
+# fetch — measured ~0.6–1 s per referenced component even when it SUCCEEDS, and
+# ~30 s + RuntimeError with a bad connection. A kitchen has hundreds of unique
+# components, so uncapped reads freeze the BOM for minutes. Strategy:
+#   - CACHE every value read (keyed like proto_cache) for the whole session,
+#     re-reading only after a TTL so an edited part number still shows up.
+#   - Spend at most a fixed BUDGET of wall-clock per build on new reads; the
+#     rest come back cached-or-blank and fill in on the next build/Refresh
+#     (progressive fill beats an all-or-nothing freeze).
+#   - A RAISED read means the service is unreachable — stop asking for a while.
+# A stale cached value is always preferred over blank.
 _PART_NUMBER_RETRY_AFTER = 0.0
 _PART_NUMBER_COOLDOWN_S = 300.0
+_PART_NUMBER_TTL_S = 600.0
+_PART_NUMBER_BUDGET_S = 8.0
+_PART_NUMBER_REVALIDATE_S = 2.0     # budget slice for stale-but-known values
+_PART_NUMBER_SPENT = 0.0        # this build's read time; reset by build_tree
+_part_number_cache = {}         # comp key -> (value, read_at)
+_part_number_cache_loaded = False
 
 
-def _component_part_number(component):
-    """Native Fusion component part number (read/write property), or ''. Returns
-    '' without asking while the part-number service is in failure cooldown or
-    Fusion is offline (the fetch would block for the network timeout)."""
-    global _PART_NUMBER_RETRY_AFTER
-    if time.time() < _PART_NUMBER_RETRY_AFTER:
-        return ''
+# The cache is persisted next to the sheet library (part_numbers.json) so a new
+# Fusion session starts with every previously seen part number instead of
+# re-paying ~0.8 s per component: stale values display immediately and are
+# re-validated gradually (TTL + budget above). Keys flatten the (root design
+# name, component name) tuple with a unit separator.
+def _pn_cache_path():
+    return os.path.join(sheets_store.library_dir(), 'part_numbers.json')
+
+
+def _pn_cache_load():
+    global _part_number_cache_loaded
+    if _part_number_cache_loaded:
+        return
+    _part_number_cache_loaded = True
     try:
-        if adsk.core.Application.get().isOffLine:
-            return ''
+        with open(_pn_cache_path(), 'r', encoding='utf-8') as f:
+            raw = json.load(f)
+        for flat_key, entry in raw.items():
+            root, sep, name = flat_key.partition('')
+            if sep and isinstance(entry, list) and len(entry) == 2:
+                _part_number_cache[(root, name)] = (str(entry[0]), float(entry[1]))
     except Exception:
         pass
+
+
+def _pn_cache_save():
     try:
-        return component.partNumber or ''
+        os.makedirs(sheets_store.library_dir(), exist_ok=True)
+        raw = {f'{k[0]}{k[1]}': [v, ts]
+               for k, (v, ts) in _part_number_cache.items()}
+        with open(_pn_cache_path(), 'w', encoding='utf-8') as f:
+            json.dump(raw, f)
     except Exception:
+        pass
+
+
+def _component_part_number(component, key=None):
+    """Native Fusion component part number (read/write property), or the best
+    known value: fresh cache hit → cached; over budget / in failure cooldown /
+    offline → last cached value (possibly stale) or ''.
+
+    UNKNOWN components may use the full read budget (their value is missing
+    outright); STALE-but-known ones only the smaller revalidation slice — so a
+    routine refresh with a fully-populated cache costs at most ~2 s extra while
+    an edited part number still catches up within the TTL."""
+    global _PART_NUMBER_RETRY_AFTER, _PART_NUMBER_SPENT
+    now = time.time()
+    cached = _part_number_cache.get(key) if key else None
+    if cached and (now - cached[1]) < _PART_NUMBER_TTL_S:
+        return cached[0]
+    fallback = cached[0] if cached else ''
+    budget = _PART_NUMBER_REVALIDATE_S if cached else _PART_NUMBER_BUDGET_S
+    if now < _PART_NUMBER_RETRY_AFTER or _PART_NUMBER_SPENT >= budget:
+        return fallback
+    try:
+        if adsk.core.Application.get().isOffLine:
+            return fallback
+    except Exception:
+        pass
+    started = time.time()
+    try:
+        value = component.partNumber or ''
+        _PART_NUMBER_SPENT += time.time() - started
+        if key:
+            _part_number_cache[key] = (value, time.time())
+        return value
+    except Exception:
+        _PART_NUMBER_SPENT += time.time() - started
         _PART_NUMBER_RETRY_AFTER = time.time() + _PART_NUMBER_COOLDOWN_S
-        return ''
+        return fallback
 
 
 def _node_type(component, has_children):
@@ -534,8 +706,10 @@ SHEET_LIKE_TYPES = ('Panel', 'Countertop')
 
 def build_tree(design, root=None):
     """Hierarchical bill of materials. Returns a list of top-level nodes; each node:
-    {name, type, material, part_number, L, W, T (mm), qty,
-     unit_cost, cost, cost_kind, children:[...]}.
+    {name, type, material, appearance, part_number, code, L, W, T (mm), qty,
+     unit_cost, cost, cost_kind, children:[...]}. Leaf dims are sorted extents;
+    Assembly dims are the cabinet's Width × Height × Depth (see assembly_dims_mm).
+    `code` is the part-coding string (see node_code).
 
     Walks the occurrence tree (occurrences -> childOccurrences) so the structure
     mirrors the browser, and groups identical sibling components into ONE node whose
@@ -563,6 +737,13 @@ def build_tree(design, root=None):
         return []
     root = root or design.rootComponent
 
+    # Fresh part-number read budget for this build (values cached across builds
+    # and sessions — see _pn_cache_load/save).
+    global _PART_NUMBER_SPENT
+    _PART_NUMBER_SPENT = 0.0
+    _pn_cache_load()
+    pn_cache_size = len(_part_number_cache)
+
     library = sheets_store.load()
     materials = library['materials']
     band_catalogue = library['edgebands']
@@ -576,12 +757,45 @@ def build_tree(design, root=None):
             rate_cache[key] = sheets_store.cost_rate_per_m2(m)
         return rate_cache[key]
 
-    def edgeband_rows(component):
+    # One findAttributes sweep per distinct owning design (the assembly itself,
+    # plus each referenced cabinet's source design) replaces the old per-face
+    # attribute scan — the scan asked EVERY face of every component for its tag
+    # (a line-bored panel or a hinge is hundreds of API calls), which is what
+    # made the BOM crawl on multi-cabinet kitchens. Keyed like proto_cache, by
+    # the owning design's root-component name. A design whose sweep failed maps
+    # to None → those components fall back to the per-face scan.
+    band_face_cache = {}
+
+    def banded_faces_for(component):
+        """[(band name, face), ...] for `component`'s tagged faces via the sweep,
+        [] when untagged, or None when the sweep isn't available for its design."""
+        try:
+            owner = component.parentDesign
+            dkey = owner.rootComponent.name
+        except Exception:
+            return None
+        if dkey not in band_face_cache:
+            band_face_cache[dkey] = design_band_faces(owner)
+        faces_by_comp = band_face_cache[dkey]
+        if faces_by_comp is None:
+            return None
+        return faces_by_comp.get(component.name, [])
+
+    def edgeband_rows(component, thickness):
         """[{name, length_mm, cost_per_m, cost}] for ONE instance of `component`,
         priced from the band catalogue. The waste factor applies like it does to
         panels (banding has offcuts at every edge)."""
         rows = []
-        for name, length_mm in sorted(component_edgebands(component).items()):
+        banded = banded_faces_for(component)
+        if banded is None:
+            lengths = component_edgebands(component)
+        else:
+            lengths = {}
+            for name, face in banded:
+                length = face_edgeband_length_mm(face, thickness)
+                if length > 0:
+                    lengths[name] = lengths.get(name, 0.0) + length
+        for name, length_mm in sorted(lengths.items()):
             rate = sheets_store.edgeband_cost_per_m(
                 sheets_store.find_edgeband(band_catalogue, name))
             cost = length_mm / 1000.0 * rate * waste_mult if rate is not None else None
@@ -626,27 +840,34 @@ def build_tree(design, root=None):
         except Exception:
             return None
 
-    def build_proto(component):
+    def build_proto(component, key=None):
         children = build_level(component.occurrences)
         ntype = _node_type(component, bool(children))
         if ntype == 'Assembly':
-            # An Assembly row shows no dims or banding; measuring one via
-            # Component.boundingBox walks every body in its subtree.
-            dims = (0.0, 0.0, 0.0)
+            # A cabinet's size comes from its design's Width/Height/Depth user
+            # parameters (bounding box as a last resort), shown as W × H × D —
+            # not sorted extents. No banding on assemblies.
+            dims = assembly_dims_mm(component) or (0.0, 0.0, 0.0)
             bands = []
         else:
             dims = panel_dims_mm(component) or (0.0, 0.0, 0.0)
-            bands = edgeband_rows(component)
+            bands = edgeband_rows(component, dims[2] if dims[2] > 0 else None)
         proto = {
             'name': component.name,
             'type': ntype,
             'material': panel_material(component),
-            'part_number': _component_part_number(component),
+            'appearance': panel_appearance(component),
+            'part_number': _component_part_number(component, key),
             'L': dims[0], 'W': dims[1], 'T': dims[2],
             'qty': 1,
             'edgebands': bands,
             'children': children,
         }
+        # The coding string's width: a cabinet's is its Width parameter (the
+        # first slot above); a panel's is its W (second-largest extent).
+        proto['code'] = node_code(proto['part_number'],
+                                  dims[0] if ntype == 'Assembly' else dims[1],
+                                  proto['material'], proto['appearance'])
         unit, kind = cost_for(component, proto, children)
         proto['unit_cost'] = unit
         proto['cost'] = unit
@@ -657,7 +878,7 @@ def build_tree(design, root=None):
         key = _comp_key(component)
         proto = proto_cache.get(key) if key else None
         if proto is None:
-            proto = build_proto(component)
+            proto = build_proto(component, key)
             if key:
                 proto_cache[key] = proto
         node = copy.deepcopy(proto)
@@ -695,6 +916,10 @@ def build_tree(design, root=None):
         if has_content or wc_attrs.get_category(root):
             nodes = [node_for(root, 1)]
     _number_tree(nodes)
+    # Persist any part numbers this build managed to read (or re-validate) so
+    # the next session starts warm instead of re-fetching from the data service.
+    if len(_part_number_cache) != pn_cache_size or _PART_NUMBER_SPENT > 0:
+        _pn_cache_save()
     return nodes
 
 
