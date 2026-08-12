@@ -242,7 +242,9 @@ append it to the `commands` list, and drop icons in its `resources/`. See
 
 ## License
 
-**MIT** — see [`LICENSE`](LICENSE). You're free to use, modify, distribute and
-even sell this, including in closed-source work; just keep the copyright notice.
+**GNU GPL v3.0 or later** — see [`LICENSE`](LICENSE). You're free to use, modify,
+distribute and even sell this, but any copy or derivative you distribute must
+also be under the GPL, with its source made available to whoever receives it.
+It comes with no warranty.
 
 **Author:** Abdelrahman Youssry
