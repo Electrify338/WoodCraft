@@ -199,6 +199,7 @@ def _payload():
         'config': _active_config_name(design) if design else '',
         'rows': _count_rows(tree),
         'totals': panels.tree_cost_totals(tree),
+        'sheets': panels.tree_sheet_counts(tree),
     }
 
 
@@ -206,8 +207,11 @@ def _xlsx_rows(tree):
     """Flatten the tree into (cells, outline_level) rows for xlsx_writer. Leaf dims
     are numeric; assemblies leave dims blank. The name is space-indented by depth so
     the hierarchy reads even with grouping collapsed. Ends with the edgebanding
-    purchase list (total metres + cost per band type across the design) and the
-    billed-BOM totals block (panels estimate / hardware / edgeband / grand total).
+    purchase list (total metres + cost per band type across the design), the
+    appearance areas list (total face m² + piece count per appearance), the
+    stock sheets list (sheets to buy per material/thickness, nested like the Cut
+    List) and the billed-BOM totals block (panels estimate / hardware / edgeband
+    / grand total).
 
     Costs are LIVE Excel formulas, so the numbers can be tweaked in the sheet:
       - a priced row's Total (L) = Unit cost (K) × Qty (H); unit costs stay plain
@@ -301,6 +305,45 @@ def _xlsx_rows(tree):
                 cells[1] = 'no cost/m in the Sheets library'
             rows.append((cells, 0))
             band_rows.append(r)
+
+    # Appearance areas — one row per appearance, design-wide: the piece count
+    # (Qty, numeric) and the total raw face area (L × W × qty, the same area
+    # costing uses) in the Material column, like the band rows' metres.
+    if totals['appearances']:
+        rows.append((list(blank), 0))
+        for ap in totals['appearances']:
+            cells = list(blank)
+            cells[2] = f"Appearance — {ap['name']}"
+            cells[3] = 'Appearance'
+            cells[7] = ap['count']
+            cells[8] = f"{ap['area_m2']:.2f} m²"
+            rows.append((cells, 0))
+
+    # Stock sheets — one row per material/thickness: sheets to buy (Qty), the
+    # stock sheet's dims in the dims columns, nested exactly like the Cut List
+    # at its defaults (primary sheet, its gap/trim/rotation).
+    sheet_counts = panels.tree_sheet_counts(tree)
+    if sheet_counts:
+        rows.append((list(blank), 0))
+        for s in sheet_counts:
+            cells = list(blank)
+            cells[2] = f"Sheets — {s['material']} {s['thickness']:g} mm"
+            cells[3] = 'Sheets'
+            cells[8] = s['material']
+            if s['matched']:
+                cells[4] = round(s['sheet_length'], 1)
+                cells[5] = round(s['sheet_width'], 1)
+                cells[6] = s['thickness']
+                cells[7] = s['num_sheets']
+                note = f"nests {s['pieces']} piece(s)"
+                if s['unplaced']:
+                    note += f"; {s['unplaced']} too large for the sheet"
+                cells[12] = note
+            else:
+                cells[1] = 'no stock sheet in the Sheets library'
+                cells[12] = (f"{s['pieces']} piece(s) — add the material in the "
+                             f"Sheets palette to get a sheet count")
+            rows.append((cells, 0))
 
     if totals['grand'] or totals['unpriced_panels']:
         def sum_expr(terms):

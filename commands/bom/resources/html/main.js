@@ -41,7 +41,7 @@ window.fusionJavaScriptHandler = { handle: function () { return 'OK'; } };
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
-const state = { tree: [], design: '', config: '', totals: null };
+const state = { tree: [], design: '', config: '', totals: null, sheets: [] };
 const collapsed = new WeakSet();   // assemblies the user has collapsed (default: open)
 
 // Small DOM builder (avoids manual HTML escaping of component names).
@@ -65,6 +65,15 @@ function h(tag, attrs, ...kids) {
 function fmt(n) { const v = parseFloat(n); return isNaN(v) ? '0' : (Math.round(v * 10) / 10).toString(); }
 function money(n) { const v = parseFloat(n); return isNaN(v) ? '' : v.toFixed(2); }
 function metres(mm) { const v = parseFloat(mm); return isNaN(v) ? '' : (v / 1000).toFixed(2) + ' m'; }
+function sqm(m2) { const v = parseFloat(m2); return isNaN(v) ? '' : v.toFixed(2) + ' m²'; }
+
+// Sheet-like rows with an appearance get an Appearance detail sub-row: the raw
+// face area (L × W — the same area costing uses) is what the decor covers.
+function appearanceArea(node) {
+  if (!node.appearance || node.L <= 0) return null;
+  if (node.type !== 'Panel' && node.type !== 'Countertop') return null;
+  return node.L * node.W / 1e6;
+}
 
 // ---------------------------------------------------------------------------
 // Init
@@ -83,6 +92,7 @@ async function load() {
   state.design = p.design || '';
   state.config = p.config || '';
   state.totals = p.totals || null;
+  state.sheets = Array.isArray(p.sheets) ? p.sheets : [];
   render();
 }
 
@@ -105,7 +115,8 @@ function collapsedClear() { state.tree.forEach(walkUncollapse); }
 function walkUncollapse(n) { collapsed.delete(n); (n.children || []).forEach(walkUncollapse); }
 function collapseAll(nodes) {
   nodes.forEach(n => {
-    if ((n.children && n.children.length) || (n.edgebands && n.edgebands.length)) collapsed.add(n);
+    if ((n.children && n.children.length) || (n.edgebands && n.edgebands.length)
+        || appearanceArea(n) != null) collapsed.add(n);
     if (n.children && n.children.length) collapseAll(n.children);
   });
 }
@@ -154,6 +165,55 @@ function render() {
   } else {
     ebBar.className = 'bar ebline hidden';
   }
+
+  // Appearance areas line: total m² (and piece count) per appearance, design-wide.
+  const appBar = document.getElementById('appBar');
+  appBar.innerHTML = '';
+  const apps = (state.totals && state.totals.appearances) || [];
+  if (apps.length) {
+    appBar.className = 'bar ebline';
+    appBar.append(h('span', {}, 'Appearance areas: '));
+    apps.forEach((a, i) => {
+      if (i) appBar.append(h('span', {}, '  ·  '));
+      appBar.append(h('b', {}, a.name),
+        h('span', { title: 'Raw face area (L × W) of every piece with this appearance, incl. quantities' },
+          ' ' + sqm(a.area_m2)),
+        h('span', { class: 'muted' }, ' (' + a.count + ' pc' + (a.count === 1 ? '' : 's') + ')'));
+    });
+  } else {
+    appBar.className = 'bar ebline hidden';
+  }
+
+  // Stock sheets line: sheets to buy per material/thickness, nested like the
+  // Cut List at its defaults (primary stock sheet, its gap/trim/rotation).
+  const shBar = document.getElementById('sheetBar');
+  shBar.innerHTML = '';
+  const sheets = state.sheets || [];
+  if (sheets.length) {
+    shBar.className = 'bar ebline';
+    shBar.append(h('span', {}, 'Stock sheets: '));
+    sheets.forEach((s, i) => {
+      if (i) shBar.append(h('span', {}, '  ·  '));
+      const label = s.material + ' ' + fmt(s.thickness) + ' mm';
+      shBar.append(h('b', {}, label));
+      if (s.matched) {
+        shBar.append(h('span', {
+          title: 'Nested like the Cut List onto the material’s primary stock sheet '
+            + '(' + fmt(s.sheet_length) + ' × ' + fmt(s.sheet_width) + ' mm, its gap/trim/rotation) — '
+            + s.pieces + ' piece(s)'
+        }, ' ' + s.num_sheets + ' sheet' + (s.num_sheets === 1 ? '' : 's')));
+        if (s.unplaced) {
+          shBar.append(h('span', { class: 'est', title: 'Too large for the stock sheet — see the Cut List report' },
+            ' ⚠ ' + s.unplaced + ' unplaced'));
+        }
+      } else {
+        shBar.append(h('span', { class: 'est', title: 'No stock sheet for this material in the Sheets library' },
+          ' (no stock sheet)'));
+      }
+    });
+  } else {
+    shBar.className = 'bar ebline hidden';
+  }
   document.getElementById('pathNote').textContent =
     'Panel costs are estimates: raw area × average sheet cost/m² + the waste factor from Settings. ' +
     'Hardware costs come from Set Type. Export writes a native .xlsx.';
@@ -173,15 +233,40 @@ function countRows(nodes) { return nodes.reduce((a, n) => a + 1 + countRows(n.ch
 function renderRows(box, nodes, level) {
   nodes.forEach(node => {
     const hasChildren = node.children && node.children.length;
-    // Rows with edgebands expand too: their banding renders as detail sub-rows.
-    const expandable = hasChildren || (node.edgebands && node.edgebands.length);
+    // Rows with edgebands or an appearance expand too: both render as detail sub-rows.
+    const expandable = hasChildren || (node.edgebands && node.edgebands.length)
+      || appearanceArea(node) != null;
     const open = !collapsed.has(node);
     box.append(rowEl(node, level, expandable, open));
     if (expandable && open) {
+      renderAppearanceRow(box, node, level + 1);
       renderEdgebandRows(box, node, level + 1);
       if (hasChildren) renderRows(box, node.children, level + 1);
     }
   });
+}
+
+// Per-panel appearance detail row (shown when the panel row is expanded): the
+// appearance with its face area per piece and the total area for the row.
+function renderAppearanceRow(box, node, level) {
+  const area = appearanceArea(node);
+  if (area == null) return;
+  const caret = h('span', { class: 'caret leaf' }, '•');
+  caret.style.marginLeft = (level * 16) + 'px';
+  box.append(h('div', { class: 'row grid ebrow' },
+    h('span', { class: 'c-no' }, ''),
+    h('span', { class: 'c-part muted' }, '—'),
+    h('span', { class: 'c-name' }, caret, h('span', { class: 'nm', title: node.appearance }, node.appearance)),
+    h('span', { class: 'c-type' }, h('span', { class: 'badge Appearance' }, 'Appearance')),
+    h('span', { class: 'c-dims', title: 'Face area per piece (L × W)' }, sqm(area)),
+    h('span', { class: 'c-mat' }, ''),
+    h('span', { class: 'c-app', title: 'Total area for this row (per piece × qty)' },
+      'Σ ' + sqm(area * node.qty)),
+    h('span', { class: 'c-qty' }, String(node.qty)),
+    h('span', { class: 'c-unit muted' }, '—'),
+    h('span', { class: 'c-cost muted' }, '—'),
+    h('span', { class: 'c-code' }, '')
+  ));
 }
 
 // Per-panel edgeband detail rows (shown when the panel row is expanded): one row

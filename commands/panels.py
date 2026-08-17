@@ -34,6 +34,7 @@ import adsk.fusion
 
 from .. import config
 from . import wc_attrs
+from . import nesting
 from . import sheets_store
 from . import settings_store
 
@@ -967,19 +968,24 @@ def estimate_panel_unit_cost(material_name, thickness, L_mm, W_mm,
 def tree_cost_totals(nodes):
     """Bill split for a build_tree() result:
     {'panels_est', 'hardware', 'edgeband', 'grand', 'unpriced_panels',
-     'edgebands': [{name, length_mm, cost|None}]} — panels_est is the sheet-derived
+     'edgebands': [{name, length_mm, cost|None}],
+     'appearances': [{name, area_m2, count}]} — panels_est is the sheet-derived
     estimate, hardware the entered purchase costs, edgeband the priced banding,
     grand their sum; unpriced_panels counts physical panels no rate could be found
     for (so a low total can't silently mean 'panels missing from the bill'). The
     edgebands list totals every tagged band BY TYPE across the design — an unpriced
     band still reports its length with cost None, so the metres to buy are always
-    complete even when the library has no price yet.
+    complete even when the library has no price yet. The appearances list totals
+    the raw face area (L × W, the same area costing uses) of every sheet-like
+    piece BY APPEARANCE across the design, with `count` the number of pieces —
+    the decor/colour shopping picture next to the banding one.
 
     Node costs are relative to ONE instance of their parent, so the walk carries
     the multiplier of enclosing quantities (2 cabinets × 4 screws = 8 screws)."""
     totals = {'panels_est': 0.0, 'hardware': 0.0, 'edgeband': 0.0, 'grand': 0.0,
-              'unpriced_panels': 0, 'edgebands': []}
+              'unpriced_panels': 0, 'edgebands': [], 'appearances': []}
     bands = {}   # name -> {'name', 'length_mm', 'cost', 'priced'}
+    apps = {}    # appearance name -> {'name', 'area_m2', 'count'}
 
     def walk(ns, mult):
         for n in ns:
@@ -996,6 +1002,12 @@ def tree_cost_totals(nodes):
                     agg['cost'] += b['cost'] * eff_qty
                 else:
                     agg['priced'] = False
+            if n['type'] in SHEET_LIKE_TYPES and n.get('appearance') and n['L'] > 0:
+                agg = apps.setdefault(n['appearance'],
+                                      {'name': n['appearance'], 'area_m2': 0.0,
+                                       'count': 0})
+                agg['area_m2'] += n['L'] * n['W'] / 1e6 * eff_qty
+                agg['count'] += eff_qty
             if kind == 'est':
                 totals['panels_est'] += n['unit_cost'] * eff_qty
             elif n['type'] in SHEET_LIKE_TYPES and kind is None:
@@ -1011,8 +1023,79 @@ def tree_cost_totals(nodes):
                                     'cost': cost})
         if cost:
             totals['edgeband'] += cost
+    for name in sorted(apps, key=str.lower):
+        agg = apps[name]
+        totals['appearances'].append({'name': name,
+                                      'area_m2': round(agg['area_m2'], 2),
+                                      'count': agg['count']})
     totals['grand'] = totals['panels_est'] + totals['hardware'] + totals['edgeband']
     return totals
+
+
+def tree_sheet_counts(nodes):
+    """Stock sheets to buy per (material, thickness) — the Cut List's nesting run
+    over a build_tree() result's Panel pieces. Walks the tree with enclosing
+    quantities multiplied through (2 cabinets × 2 sides = 4 rects), groups like
+    group_by_material_thickness, and packs each group onto its material's
+    primary stock sheet (the Cut List's default choice) with that sheet's
+    gap / trim / rotation via nesting.pack — so the count matches a Cut List
+    report run at its defaults. Countertops are excluded, same as the Cut List
+    (bought as slabs, not nested out of stock sheets).
+
+    Returns [{material, thickness, pieces, matched, num_sheets, sheet_length,
+    sheet_width, unplaced, cost}] sorted by material name then thickness
+    descending. An unmatched group (no stock material/sheet in the Sheets
+    library) still reports its piece count with num_sheets 0, so missing stock
+    is visible rather than silently dropped. cost is num_sheets × the sheet's
+    purchase cost (0 when unpriced) — informational; the billed BOM keeps its
+    area-based panel estimate."""
+    groups = {}
+    order = []
+
+    def walk(ns, mult):
+        for n in ns:
+            eff = mult * n['qty']
+            if n['type'] == 'Panel' and n['L'] > 0:
+                material = (n.get('material') or '').strip() or 'Unassigned'
+                t = round(n['T'], 1)
+                key = (material.lower(), t)
+                if key not in groups:
+                    groups[key] = {'material': material, 'thickness': t, 'rects': []}
+                    order.append(key)
+                g = groups[key]
+                for _ in range(int(eff)):
+                    g['rects'].append({'id': len(g['rects']), 'label': n['name'],
+                                       'w': n['L'], 'h': n['W']})
+            walk(n['children'], eff)
+
+    walk(nodes, 1)
+    order.sort(key=lambda k: (k[0], -k[1]))
+
+    materials = sheets_store.load()['materials']
+    out = []
+    for key in order:
+        g = groups[key]
+        mat = sheets_store.find_material(materials, g['material'], g['thickness'])
+        stock = (mat.get('sheets') or []) if mat else []
+        sheet = stock[0] if stock else None
+        row = {'material': g['material'], 'thickness': g['thickness'],
+               'pieces': len(g['rects']), 'matched': sheet is not None,
+               'num_sheets': 0, 'sheet_length': 0.0, 'sheet_width': 0.0,
+               'unplaced': 0, 'cost': 0.0}
+        if sheet:
+            gap = max(0.0, float(sheet.get('separation') or 0.0))
+            trim = max(0.0, float(sheet.get('trim') or 0.0))
+            allow_rot = sheets_store.rotation_allows_rotation(sheet.get('rotation'))
+            result = nesting.pack(g['rects'], sheet['length'], sheet['width'],
+                                  gap, trim, allow_rot)
+            row.update({'num_sheets': len(result['sheets']),
+                        'sheet_length': sheet['length'],
+                        'sheet_width': sheet['width'],
+                        'unplaced': len(result['unplaced']),
+                        'cost': (len(result['sheets'])
+                                 * float(sheet.get('cost', 0.0) or 0.0))})
+        out.append(row)
+    return out
 
 
 def flatten_tree(nodes, level=0):
