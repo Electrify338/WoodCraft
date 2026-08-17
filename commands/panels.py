@@ -227,6 +227,26 @@ def _fmt_code_mm(value):
     return str(int(r)) if r == int(r) else str(r)
 
 
+def component_surface_area_m2(component):
+    """Total surface area of the component's OWN bodies in m² — the sum of
+    BRepBody.area (cm² internally, ×1e-4), which is the 'Area' Fusion shows in
+    the component's Properties. All faces count: both big faces AND the edges,
+    so this is the paint/finish coverage figure, unlike the L × W footprint the
+    costing and nesting use. 0.0 when the component has no bodies or a body
+    can't be measured (callers fall back to L × W)."""
+    total = 0.0
+    try:
+        bodies = component.bRepBodies
+        for i in range(bodies.count):
+            try:
+                total += bodies.item(i).area
+            except Exception:
+                pass
+    except Exception:
+        return 0.0
+    return total * 1e-4
+
+
 def node_code(part_number, width_mm, material, appearance):
     """The user's part-coding string: 'part number-width-material-appearance',
     dash-joined with empty segments skipped (no leading/doubled dashes when a
@@ -723,8 +743,10 @@ SHEET_LIKE_TYPES = ('Panel', 'Countertop')
 def build_tree(design, root=None):
     """Hierarchical bill of materials. Returns a list of top-level nodes; each node:
     {name, type, material, appearance, part_number, code, L, W, T (mm), qty,
-     unit_cost, cost, cost_kind, children:[...]}. Leaf dims are sorted extents;
-    Assembly dims are the cabinet's Width × Height × Depth (see assembly_dims_mm).
+     surface_m2, unit_cost, cost, cost_kind, children:[...]}. Leaf dims are sorted
+    extents; surface_m2 is Fusion's Properties 'Area' (all faces, sheet-like
+    leaves only — the paint-coverage figure); Assembly dims are the cabinet's
+    Width × Height × Depth (see assembly_dims_mm).
     `code` is the part-coding string (see node_code).
 
     Walks the occurrence tree (occurrences -> childOccurrences) so the structure
@@ -877,6 +899,10 @@ def build_tree(design, root=None):
             'L': dims[0], 'W': dims[1], 'T': dims[2],
             'qty': 1,
             'edgebands': bands,
+            # Fusion's Properties 'Area' (all faces) — what the appearance/paint
+            # coverage figures use. Only measured on sheet-like leaves.
+            'surface_m2': (component_surface_area_m2(component)
+                           if ntype in SHEET_LIKE_TYPES else 0.0),
             'children': children,
         }
         # The coding string's width: a cabinet's is its Width parameter (the
@@ -976,9 +1002,10 @@ def tree_cost_totals(nodes):
     edgebands list totals every tagged band BY TYPE across the design — an unpriced
     band still reports its length with cost None, so the metres to buy are always
     complete even when the library has no price yet. The appearances list totals
-    the raw face area (L × W, the same area costing uses) of every sheet-like
-    piece BY APPEARANCE across the design, with `count` the number of pieces —
-    the decor/colour shopping picture next to the banding one.
+    the ACTUAL surface area of every sheet-like piece BY APPEARANCE across the
+    design (node surface_m2 — Fusion's Properties 'Area', all faces including
+    edges, so it sizes paint/finish coverage; L × W is the fallback when a body
+    couldn't be measured), with `count` the number of pieces.
 
     Node costs are relative to ONE instance of their parent, so the walk carries
     the multiplier of enclosing quantities (2 cabinets × 4 screws = 8 screws)."""
@@ -1002,12 +1029,16 @@ def tree_cost_totals(nodes):
                     agg['cost'] += b['cost'] * eff_qty
                 else:
                     agg['priced'] = False
-            if n['type'] in SHEET_LIKE_TYPES and n.get('appearance') and n['L'] > 0:
-                agg = apps.setdefault(n['appearance'],
-                                      {'name': n['appearance'], 'area_m2': 0.0,
-                                       'count': 0})
-                agg['area_m2'] += n['L'] * n['W'] / 1e6 * eff_qty
-                agg['count'] += eff_qty
+            if n['type'] in SHEET_LIKE_TYPES and n.get('appearance'):
+                area = n.get('surface_m2') or 0.0
+                if area <= 0 and n['L'] > 0:
+                    area = n['L'] * n['W'] / 1e6
+                if area > 0:
+                    agg = apps.setdefault(n['appearance'],
+                                          {'name': n['appearance'], 'area_m2': 0.0,
+                                           'count': 0})
+                    agg['area_m2'] += area * eff_qty
+                    agg['count'] += eff_qty
             if kind == 'est':
                 totals['panels_est'] += n['unit_cost'] * eff_qty
             elif n['type'] in SHEET_LIKE_TYPES and kind is None:

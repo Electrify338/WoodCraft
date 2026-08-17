@@ -307,8 +307,9 @@ def _xlsx_rows(tree):
             band_rows.append(r)
 
     # Appearance areas — one row per appearance, design-wide: the piece count
-    # (Qty, numeric) and the total raw face area (L × W × qty, the same area
-    # costing uses) in the Material column, like the band rows' metres.
+    # (Qty, numeric) and the total surface area (all faces, Fusion's Properties
+    # 'Area' × qty — paint coverage) in the Material column, like the band
+    # rows' metres.
     if totals['appearances']:
         rows.append((list(blank), 0))
         for ap in totals['appearances']:

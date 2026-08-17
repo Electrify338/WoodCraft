@@ -67,12 +67,14 @@ function money(n) { const v = parseFloat(n); return isNaN(v) ? '' : v.toFixed(2)
 function metres(mm) { const v = parseFloat(mm); return isNaN(v) ? '' : (v / 1000).toFixed(2) + ' m'; }
 function sqm(m2) { const v = parseFloat(m2); return isNaN(v) ? '' : v.toFixed(2) + ' m²'; }
 
-// Sheet-like rows with an appearance get an Appearance detail sub-row: the raw
-// face area (L × W — the same area costing uses) is what the decor covers.
+// Sheet-like rows with an appearance get an Appearance detail sub-row: the
+// piece's ACTUAL surface area (all faces, = Fusion's Properties 'Area') is the
+// paint/finish coverage; L × W is the fallback when a body wasn't measurable.
 function appearanceArea(node) {
-  if (!node.appearance || node.L <= 0) return null;
+  if (!node.appearance) return null;
   if (node.type !== 'Panel' && node.type !== 'Countertop') return null;
-  return node.L * node.W / 1e6;
+  if (node.surface_m2 > 0) return node.surface_m2;
+  return node.L > 0 ? node.L * node.W / 1e6 : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -176,7 +178,7 @@ function render() {
     apps.forEach((a, i) => {
       if (i) appBar.append(h('span', {}, '  ·  '));
       appBar.append(h('b', {}, a.name),
-        h('span', { title: 'Raw face area (L × W) of every piece with this appearance, incl. quantities' },
+        h('span', { title: 'Total surface area (all faces, as in Fusion’s Properties) of every piece with this appearance, incl. quantities — the paint/finish coverage' },
           ' ' + sqm(a.area_m2)),
         h('span', { class: 'muted' }, ' (' + a.count + ' pc' + (a.count === 1 ? '' : 's') + ')'));
     });
@@ -258,9 +260,9 @@ function renderAppearanceRow(box, node, level) {
     h('span', { class: 'c-part muted' }, '—'),
     h('span', { class: 'c-name' }, caret, h('span', { class: 'nm', title: node.appearance }, node.appearance)),
     h('span', { class: 'c-type' }, h('span', { class: 'badge Appearance' }, 'Appearance')),
-    h('span', { class: 'c-dims', title: 'Face area per piece (L × W)' }, sqm(area)),
+    h('span', { class: 'c-dims', title: 'Surface area per piece — all faces, as in Fusion’s Properties' }, sqm(area)),
     h('span', { class: 'c-mat' }, ''),
-    h('span', { class: 'c-app', title: 'Total area for this row (per piece × qty)' },
+    h('span', { class: 'c-app', title: 'Total surface area for this row (per piece × qty)' },
       'Σ ' + sqm(area * node.qty)),
     h('span', { class: 'c-qty' }, String(node.qty)),
     h('span', { class: 'c-unit muted' }, '—'),
