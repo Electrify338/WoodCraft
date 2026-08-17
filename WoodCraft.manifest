@@ -5,7 +5,7 @@
 	"description":	{
 		"":	"An addon to make creating cabinets faster and more seemless"
 	},
-	"version":	"0.4.0",
+	"version":	"0.5.0",
 	"runOnStartup":	false,
 	"supportedOS":	"windows",
 	"editEnabled":	true,

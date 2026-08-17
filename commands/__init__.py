@@ -33,6 +33,7 @@ from .sheets import entry as sheets
 from .cutList import entry as cutList
 from .bom import entry as bom
 from .settings import entry as settings
+from .renameConfigs import entry as renameConfigs  # DEV panel
 from .inspectPanels import entry as inspectPanels  # DEV — remove later
 
 # Fusion automatically calls start() and stop() on each of these.
@@ -51,6 +52,7 @@ commands = [
     cutList,
     bom,
     settings,
+    renameConfigs,  # DEV panel
     inspectPanels,  # DEV — remove later
 ]
 
