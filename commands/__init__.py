@@ -25,10 +25,13 @@ from .editThickness import entry as editThickness
 from .shelf import entry as shelf
 from .lineBoring import entry as lineBoring
 from .convertPanel import entry as convertPanel
+from .setFinish import entry as setFinish
+from .finishLists import entry as finishLists
 from .edgeband import entry as edgeband
 from .insertHardware import entry as insertHardware
 from .sculpt import entry as sculpt
 from .countertop import entry as countertop
+from .skirting import entry as skirting
 from .sheets import entry as sheets
 from .cutList import entry as cutList
 from .bom import entry as bom
@@ -44,10 +47,13 @@ commands = [
     shelf,
     lineBoring,
     convertPanel,
+    setFinish,
+    finishLists,
     edgeband,
     insertHardware,
     sculpt,
     countertop,
+    skirting,
     sheets,
     cutList,
     bom,
