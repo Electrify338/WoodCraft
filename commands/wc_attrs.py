@@ -103,6 +103,27 @@ def is_sheet_like(component) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Appearance role (used by the Appearance Config command)
+# ---------------------------------------------------------------------------
+def get_role(component):
+    """'door' | 'front' | 'carcass' | 'skip' | None (classify by name keywords).
+    Anything unexpected on disk reads as None so a bad value can't wedge a scan."""
+    value = get_value(component, config.WC_ROLE)
+    return value if value in config.WC_ROLES else None
+
+
+def set_role(component, role) -> bool:
+    """Persist an appearance role. Unknown role → refuse rather than store junk."""
+    if role not in config.WC_ROLES:
+        return False
+    return set_value(component, config.WC_ROLE, role)
+
+
+def remove_role(component) -> bool:
+    return remove_value(component, config.WC_ROLE)
+
+
+# ---------------------------------------------------------------------------
 # Hardware unit cost
 # ---------------------------------------------------------------------------
 def get_cost(component, default=0.0) -> float:

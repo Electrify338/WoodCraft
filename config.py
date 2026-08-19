@@ -136,5 +136,27 @@ WC_PURCHASE_SEPARATE = 'separate'
 # on the face — same philosophy as panel costs being derived, never stored).
 WC_EDGEBAND = 'edgeband'
 
+# Appearance role — HOW a part is painted when a configuration row is applied by
+# the Appearance Config command. Orthogonal to WC_CATEGORY on purpose: a door IS
+# a panel (nested, costed, edgebanded like any panel); the role only decides
+# whether it takes the row's door finish or the carcass appearance. Absent role =
+# classify by name keywords (the Appearance Config profile). Set by the Appearance
+# Config palette when the user persists an override.
+WC_ROLE = 'role'
+WC_ROLE_DOOR = 'door'        # takes the configuration row's door finish
+WC_ROLE_FRONT = 'front'      # fixed/front panel: door finish ONLY when its cabinet
+                             # has exactly one door (L-corner rule), else carcass
+WC_ROLE_CARCASS = 'carcass'  # always the carcass appearance
+WC_ROLE_SKIP = 'skip'        # never gets an appearance column (hardware, trim…)
+WC_ROLES = (WC_ROLE_DOOR, WC_ROLE_FRONT, WC_ROLE_CARCASS, WC_ROLE_SKIP)
+
+# Appearance column map — stamped on the ROOT component by Appearance Config:
+# a JSON list of occurrence paths, one per appearance-table column (in column
+# order, root column excluded). Column titles are just leaf names ('Panel:1')
+# and repeat across cabinets, so this sidecar is the only exact record of which
+# occurrence each column belongs to; the fix pass needs it to grow/verify a
+# table without rebuilding it.
+WC_APPEARANCE_COLS = 'appearanceColumns'
+
 # Future keys plug in here with no core change, e.g.:
 #   WC_FINISH = 'finish'; WC_PART_NO = 'partNumber'

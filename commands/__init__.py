@@ -29,6 +29,7 @@ from .edgeband import entry as edgeband
 from .insertHardware import entry as insertHardware
 from .sculpt import entry as sculpt
 from .countertop import entry as countertop
+from .appearanceConfig import entry as appearanceConfig
 from .sheets import entry as sheets
 from .cutList import entry as cutList
 from .bom import entry as bom
@@ -48,6 +49,7 @@ commands = [
     insertHardware,
     sculpt,
     countertop,
+    appearanceConfig,
     sheets,
     cutList,
     bom,

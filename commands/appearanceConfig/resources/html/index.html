@@ -1,0 +1,63 @@
+<!doctype html>
+<!--
+  WoodCraft — a Fusion add-in for cabinetmaking.
+  Copyright (C) 2026 Abdelrahman Youssry
+
+  This program is free software: you can redistribute it and/or modify it under
+  the terms of the GNU General Public License as published by the Free Software
+  Foundation, either version 3 of the License, or (at your option) any later
+  version.
+
+  This program is distributed in the hope that it will be useful, but WITHOUT
+  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+  FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License along with
+  this program.  If not, see <https://www.gnu.org/licenses/>.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WoodCraft — Appearance Config</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="title">Appearance Config</div>
+    <div class="actions">
+      <button id="btnScan" title="Re-scan the active design and re-classify every part">Rescan</button>
+      <button id="btnBuild" class="primary" title="Create/grow the appearance table from the plan below and fill every cell">Build</button>
+      <button id="btnFix" title="Verify an existing table and fill/repair empty or wrong cells (never creates tables)">Verify &amp; Fix</button>
+      <button id="btnCheck" title="Read-only sweep: report empty and wrong cells without changing anything">Check</button>
+    </div>
+  </header>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <div class="bar">
+    <span id="docName" class="doc">—</span>
+    <span id="tableInfo" class="muted"></span>
+    <label class="persist" title="Write your overrides back as WoodCraft role attributes on the components, so the next scan classifies them correctly by itself">
+      <input type="checkbox" id="chkPersist" checked> Persist overrides
+    </label>
+  </div>
+
+  <main id="content">
+    <div class="empty">Scanning the active design…</div>
+  </main>
+
+  <footer>
+    <div class="previewbar">
+      <label>Preview row
+        <select id="previewRow"></select>
+      </label>
+      <button id="btnPreview" class="tiny" title="Point the active configuration at this appearance row for a visual check">Preview</button>
+      <button id="btnRestore" class="tiny" title="Restore the appearance selection that was active before Preview">Restore</button>
+      <span id="footNote" class="path"></span>
+    </div>
+  </footer>
+
+  <script src="main.js"></script>
+</body>
+</html>
