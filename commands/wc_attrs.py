@@ -151,3 +151,28 @@ def get_purchase_mode(component):
 
 def set_purchase_mode(component, mode) -> bool:
     return set_value(component, config.WC_PURCHASE, mode)
+
+
+# ---------------------------------------------------------------------------
+# Finish spec (Carcass Type / Door Type)
+# ---------------------------------------------------------------------------
+# Written by the Set Finish command onto the CABINET component. The keys are
+# config.WC_CARCASS_TYPE / WC_DOOR_TYPE — human-readable names ('Carcass Type',
+# 'Door Type') so the pair reads the same in Fusion's attribute inspector as it
+# does in the dialog. Values are always one of config.WC_FINISH_TYPES.
+def get_carcass_type(component, default=None):
+    """'Painted' | 'Veneer' | `default` if the cabinet has no finish spec yet."""
+    return get_value(component, config.WC_CARCASS_TYPE, default)
+
+
+def set_carcass_type(component, finish) -> bool:
+    return set_value(component, config.WC_CARCASS_TYPE, finish)
+
+
+def get_door_type(component, default=None):
+    """'Painted' | 'Veneer' | `default` if the cabinet has no finish spec yet."""
+    return get_value(component, config.WC_DOOR_TYPE, default)
+
+
+def set_door_type(component, finish) -> bool:
+    return set_value(component, config.WC_DOOR_TYPE, finish)
