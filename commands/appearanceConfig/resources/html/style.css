@@ -122,6 +122,14 @@ select {
 
 .empty { color: var(--muted); margin-top: 30px; text-align: center; }
 
+/* Per-cabinet custom finish form */
+.customfinish {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 7px 10px; border-top: 1px solid var(--line); background: var(--panel2);
+}
+.customfinish label { color: var(--muted); display: flex; align-items: center; gap: 5px; }
+.customfinish select { max-width: 210px; }
+
 /* Report */
 pre.report {
   background: var(--panel); border: 1px solid var(--line); border-radius: 6px;

@@ -437,18 +437,27 @@ def scan(design, profile, role_overrides=None, group_overrides=None):
             # Still walk the children (as forced-skip, no wrapper tracking):
             # if a column was built for this cabinet BEFORE it was excluded,
             # map_columns must recognise and RETIRE it, or the excluded parts
-            # keep following the theme forever.
+            # keep following the theme forever. The REAL classification is
+            # kept in 'origRole' (fronts resolved by the single-door rule)
+            # so apply_custom_finish can still tell a door from a panel.
+            shadow = []
             try:
                 for ch, child_name in _unique_names(top.childOccurrences):
-                    shadow = []
                     _collect(ch, [name], shadow, occs, profile, 0, child_name)
-                    for it in shadow:
-                        it['role'] = ROLE_SKIP
-                        it['source'] = 'excluded'
-                        it['reason'] = f'inside excluded {name}'
-                    items.extend(shadow)
             except Exception:
                 pass
+            for it in shadow:
+                if it['key'] in role_overrides:
+                    it['role'] = role_overrides[it['key']]
+            shadow_doors = len([i for i in shadow if i['role'] == ROLE_DOOR])
+            for it in shadow:
+                if it['role'] == ROLE_FRONT:
+                    it['role'] = ROLE_DOOR if shadow_doors == 1 else ROLE_CARCASS
+                it['origRole'] = it['role']
+                it['role'] = ROLE_SKIP
+                it['source'] = 'excluded'
+                it['reason'] = f'inside excluded {name}'
+            items.extend(shadow)
             continue
 
         raw = []
@@ -1251,6 +1260,65 @@ def restore(design):
     except Exception:
         pass
     return {'ok': True, 'row': prev_name}
+
+
+# ---------------------------------------------------------------------------
+# Custom finish — one cabinet, its own look, outside the theme
+# ---------------------------------------------------------------------------
+def apply_custom_finish(design, plan, profile, ui, group_name,
+                        carcass_code, door_code):
+    """Give ONE cabinet a finish of its own instead of the theme's.
+
+    Mechanism: the cabinet must already be EXCLUDED in `plan` (scan called with
+    a group override), so the fix pass retires its columns — themes stop
+    touching it — and then its parts are painted directly at occurrence level,
+    doors with `door_code`, everything else with `carcass_code`, using the
+    classification recorded in origRole before the exclusion forced the parts
+    to skip. The paint sticks across theme switches precisely BECAUSE the
+    columns are gone. Include + Build later returns the cabinet to the theme
+    (which then repaints over the custom finish)."""
+    report = {'ok': True, 'warnings': [], 'painted': 0}
+
+    appearances = ensure_appearances(design, profile)
+    if appearances['missing']:
+        return {'ok': False, 'error': 'Missing appearances: '
+                + ', '.join(appearances['missing'])}
+    carcass = find_appearance(design.appearances, carcass_code)
+    door = find_appearance(design.appearances, door_code) if door_code else carcass
+    if carcass is None or door is None:
+        return {'ok': False, 'error': f'appearance not found for carcass '
+                f'{carcass_code!r} / door {door_code!r}'}
+
+    # Retire this cabinet's columns (and repair the rest of the table) via the
+    # normal fix pass. A design with no table yet has nothing to retire.
+    if design.isConfiguredDesign:
+        sub = apply_plan(design, plan, profile, ui, create=False)
+        report['columnsRetired'] = sub.get('columnsRetired', [])
+        report['warnings'].extend(sub.get('warnings', []))
+        if not sub.get('ok'):
+            report['warnings'].append(sub.get('error') or 'fix pass incomplete')
+
+    occs = plan.get('occs') or {}
+    for item in plan.get('items') or []:
+        if item.get('group') != group_name or item.get('source') != 'excluded':
+            continue
+        role = item.get('origRole')
+        if role not in (ROLE_DOOR, ROLE_CARCASS):
+            continue
+        occ = occs.get(item['key'])
+        if occ is None:
+            continue
+        want = door if role == ROLE_DOOR else carcass
+        try:
+            occ.appearance = want
+            report['painted'] += 1
+        except Exception:
+            report['warnings'].append(f"could not paint {item['key']}")
+    if report['painted'] == 0:
+        report['ok'] = False
+        report['error'] = (f'no door/carcass parts found to paint in '
+                           f'{group_name} — is it excluded and classified?')
+    return report
 
 
 # ---------------------------------------------------------------------------

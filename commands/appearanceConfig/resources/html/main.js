@@ -49,6 +49,7 @@ const state = {
   groupOverrides: {},       // top-level occurrence name -> 'include' | 'exclude'
   collapsed: new Set(),     // group names folded shut
   report: null,             // last build/fix/check report (rendered on top)
+  customOpen: null,         // cabinet name whose Custom Finish form is open
   busy: false,
 };
 
@@ -260,6 +261,7 @@ function renderReport() {
   }
   if (d.rowsAdded != null) lines.push('Rows added: ' + d.rowsAdded + ' (total ' + d.rows + ')');
   if (d.cellsFilled != null) lines.push('Cells written: ' + d.cellsFilled);
+  if (d.painted != null) lines.push('Parts painted with the custom finish: ' + d.painted);
   if (d.rowsSkipped && d.rowsSkipped.length) lines.push('Rows left alone (non-scheme names): ' + d.rowsSkipped.join(', '));
   if (d.appearances && d.appearances.copied && d.appearances.copied.length)
     lines.push('Appearances copied:\n  ' + d.appearances.copied.join('\n  '));
@@ -334,16 +336,56 @@ function renderGroup(g, items, roles) {
     head.append(h('span', { class: 'badge', text: g.parts + ' col' + (g.parts === 1 ? '' : 's') }));
     head.append(h('button', { class: 'tiny', onclick: (ev) => {
       ev.stopPropagation();
+      state.customOpen = state.customOpen === g.name ? null : g.name;
+      render();
+    }, title: 'Give this one cabinet its own carcass/door finish — it leaves the theme and keeps that look across theme switches' }, 'Finish…'));
+    head.append(h('button', { class: 'tiny', onclick: (ev) => {
+      ev.stopPropagation();
       state.groupOverrides[g.name] = 'exclude';
       rescan(true);
     }, title: 'Leave this occurrence out of the appearance table' }, 'Exclude'));
   }
 
   const box = h('div', { class: 'group' }, head);
+  if (state.customOpen === g.name && g.kind === 'cabinet') {
+    box.append(renderCustomFinish(g));
+  }
   if (!folded && items.length && g.kind !== 'excluded') {
     box.append(h('div', { class: 'items' }, ...items.map(it => renderItem(it, g, roles))));
   }
   return box;
+}
+
+function renderCustomFinish(g) {
+  const fo = (state.data && state.data.finishOptions) || { carcasses: [], finishes: [] };
+  const carcSel = h('select', {});
+  for (const c of fo.carcasses.concat(fo.finishes)) {
+    carcSel.append(h('option', { value: c.code, text: c.name }));
+  }
+  const doorSel = h('select', {});
+  for (const c of fo.finishes) {
+    doorSel.append(h('option', { value: c.code, text: c.name }));
+  }
+  return h('div', { class: 'customfinish' },
+    h('span', { class: 'muted', text: 'Custom finish — excludes this cabinet from the theme:' }),
+    h('label', {}, 'Carcass ', carcSel),
+    h('label', {}, 'Doors ', doorSel),
+    h('button', { class: 'tiny primary', onclick: async () => {
+      setBusy(true);
+      state.groupOverrides[g.name] = 'exclude';
+      const r = await bridge('custom_finish', {
+        ...overridesPayload(), group: g.name,
+        carcass: carcSel.value, door: doorSel.value,
+      });
+      setBusy(false);
+      state.report = { kind: 'Custom finish', data: r };
+      if (r.state && r.state.ok) state.data = r.state;
+      state.customOpen = null;
+      render();
+      if (r.ok) toast('Custom finish on ' + g.name + ' — ' + (r.painted || 0) + ' parts painted, cabinet left the theme');
+      else toast(r.error || 'Custom finish failed', true);
+    } }, 'Apply'),
+    h('button', { class: 'tiny', onclick: () => { state.customOpen = null; render(); } }, 'Cancel'));
 }
 
 function renderItem(it, g, roles) {
@@ -412,6 +454,10 @@ function mockBridge(action, payload) {
     appearances: { have: ['8685 PE - Snow White'], missing: ['K022 SN - Satin Blackwood'], libraryPath: '', libraryOk: false, openDocs: ['WC_S2 v12'] },
     expectedRows: ['#1-White-0101 PE - Front White', '#25-Grey-K022 SN - Satin Blackwood'],
     roles: ['door', 'front', 'carcass', 'skip'],
+    finishOptions: {
+      carcasses: [{ code: '8685', name: '8685 PE - Snow White' }, { code: 'K096', name: 'K096 SU - Clay Grey' }],
+      finishes: [{ code: '0101', name: '0101 PE - Front White' }, { code: 'K022', name: 'K022 SN - Satin Blackwood' }],
+    },
     profilePath: 'C:/Users/mock/AppData/Roaming/WoodCraft/config_tables.json',
     sourceDoc: { name: 'WC_S2' },
   };

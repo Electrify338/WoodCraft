@@ -187,6 +187,9 @@ def _scan_payload(design, data):
         'roles': list(config.WC_ROLES),
         'profilePath': config_tables_store.profile_path(),
         'sourceDoc': profile.get('source_document', {}),
+        # For the per-cabinet Custom Finish form: the scheme's palette.
+        'finishOptions': {'carcasses': profile['carcasses'],
+                          'finishes': profile['finishes']},
     }
 
 
@@ -251,6 +254,32 @@ def palette_incoming(args: adsk.core.HTMLEventArgs):
                 result = {'ok': True,
                           'verify': appearance_tables.verify(
                               design, profile=profile, plan=plan)}
+        elif action == 'custom_finish':
+            _busy = True
+            try:
+                profile = config_tables_store.load()
+                role_ov, group_ov = _overrides(data)
+                group = str(data.get('group', ''))
+                group_ov[group] = 'exclude'
+                # The exclusion must OUTLIVE this session, or the next fix
+                # pass re-adds columns and the theme paints over the custom
+                # finish — so it is always persisted (role=skip on the
+                # cabinet component).
+                persisted = appearance_tables.persist_overrides(
+                    design, {}, {group: 'exclude'})
+                plan = appearance_tables.scan(design, profile, role_ov, group_ov)
+                result = appearance_tables.apply_custom_finish(
+                    design, plan, profile, ui, group,
+                    str(data.get('carcass', '')), str(data.get('door', '')))
+                result['persisted'] = persisted
+                try:
+                    merged = dict(data)
+                    merged['groupOverrides'] = group_ov
+                    result['state'] = _scan_payload(design, merged)
+                except Exception:
+                    pass
+            finally:
+                _busy = False
         elif action == 'preview':
             result = appearance_tables.preview(design, str(data.get('row', '')))
         elif action == 'restore':
