@@ -18,8 +18,13 @@
 Reads the active configured design's top table, resolves each row's Width and
 Height (whether the column holds the parameter directly or references a theme
 table), and renames the row to '<file name>-<width>-<height>' in the document's
-default length units (e.g. 'WC_CL_S1-1000-720'). The dialog previews every
-rename before anything is touched; OK applies them.
+default length units (e.g. 'WC_CL_S1-1000-720').
+
+Column titles vary across the library — wall cabinets say 'Width'/'Height',
+base cabinets say 'Cabinet Width' and have no overall height at all (only
+'Legs Height' / 'Countertop Height') — so the dialog carries two dropdowns,
+pre-selected by a fuzzy title match, letting the user point Width/Height at any
+column or skip Height entirely. The preview updates live; OK applies.
 """
 
 import os
@@ -47,6 +52,9 @@ PANEL_NAME = config.DEV_PANEL_NAME
 ICON_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'resources', '')
 
 PREVIEW_ID = 'rc_preview'
+WIDTH_COL_ID = 'rc_width_col'
+HEIGHT_COL_ID = 'rc_height_col'
+NONE_LABEL = '— none —'
 
 local_handlers = []
 
@@ -125,30 +133,63 @@ def _cell_length(des, cell, want_title):
     return theme_row.name or None
 
 
-def _plan():
-    """(base_name, [{'row', 'old', 'new'} ...], error_html_or_None)."""
+def _get_table():
+    """(design, top_table, error_or_None) for the active document."""
     des = adsk.fusion.Design.cast(app.activeProduct)
     if not des:
-        return None, [], 'No active design.'
+        return None, None, 'No active design.'
     if not getattr(des, 'isConfiguredDesign', False):
-        return None, [], 'The active document is not a configured design.'
-
+        return None, None, 'The active document is not a configured design.'
     table = des.configurationTopTable
     if not table:
-        return None, [], 'No configuration table found.'
+        return None, None, 'No configuration table found.'
+    return des, table, None
 
-    width_ci = height_ci = None
-    titles = []
+
+def _candidate_columns(table):
+    """[(index, title)] of every value-bearing column (theme/parameter — skips
+    property columns like Part Number, whose reads can hit the cloud)."""
+    out = []
     for ci in range(table.columns.count):
-        title = (getattr(table.columns.item(ci), 'title', '') or '').strip()
-        titles.append(title)
-        if title.lower() == 'width':
-            width_ci = ci
-        elif title.lower() == 'height':
-            height_ci = ci
-    if width_ci is None or height_ci is None:
-        return None, [], ('Could not find both a <b>Width</b> and a <b>Height</b> column '
-                          f'in the configuration table. Columns found: {", ".join(titles)}.')
+        col = table.columns.item(ci)
+        ctype = col.objectType.split('::')[-1]
+        if ctype in ('ConfigurationThemeColumn', 'ConfigurationParameterColumn'):
+            out.append((ci, (getattr(col, 'title', '') or '').strip()))
+    return out
+
+
+def _guess_column(candidates, word):
+    """Best title match for 'width'/'height': exact title beats a title that
+    contains the word as its LAST word ('Cabinet Width') beats any title merely
+    containing it ('Legs Height'). Returns the title or None."""
+    best, best_score = None, 0
+    for _, title in candidates:
+        t = title.lower()
+        if t == word:
+            score = 3
+        elif t.endswith(' ' + word):
+            score = 2
+        elif word in t:
+            score = 1
+        else:
+            continue
+        if score > best_score:
+            best, best_score = title, score
+    return best
+
+
+def _plan(width_title, height_title):
+    """(base_name, [{'row', 'old', 'new'} ...], error_html_or_None) for the
+    chosen columns. height_title may be None → names are '<File>-<Width>'."""
+    des, table, err = _get_table()
+    if err:
+        return None, [], err
+
+    lookup = {t: ci for ci, t in _candidate_columns(table)}
+    width_ci = lookup.get(width_title)
+    height_ci = lookup.get(height_title) if height_title else None
+    if width_ci is None:
+        return None, [], 'Pick the column that holds the cabinet width.'
 
     base = _base_name(app.activeDocument)
     plan = []
@@ -156,14 +197,15 @@ def _plan():
     problems = []
     for ri in range(table.rows.count):
         row = table.rows.item(ri)
-        w = _cell_length(des, table.getCell(width_ci, ri), 'width')
-        h = _cell_length(des, table.getCell(height_ci, ri), 'height')
+        w = _cell_length(des, table.getCell(width_ci, ri), width_title.lower())
+        h = (_cell_length(des, table.getCell(height_ci, ri), height_title.lower())
+             if height_ci is not None else '')
         if w is None or h is None:
             problems.append(f'<b>{row.name}</b>: could not read '
-                            f'{"Width" if w is None else "Height"} — skipped.')
+                            f'{width_title if w is None else height_title} — skipped.')
             continue
-        new = f'{base}-{w}-{h}'
-        # Two rows with the same W×H would collide on the same name.
+        new = f'{base}-{w}-{h}' if h else f'{base}-{w}'
+        # Two rows with the same size would collide on the same name.
         if new in used:
             n = 2
             while f'{new} ({n})' in used:
@@ -180,17 +222,20 @@ def _plan():
 # Command events
 # ---------------------------------------------------------------------------
 
-def command_created(args: adsk.core.CommandCreatedEventArgs):
-    futil.log(f'{CMD_NAME} Command Created Event')
-    inputs = args.command.commandInputs
+def _selected_titles(inputs):
+    """(width_title_or_None, height_title_or_None) from the two dropdowns."""
+    def sel(input_id):
+        dd = inputs.itemById(input_id)
+        item = dd.selectedItem if dd else None
+        name = item.name if item else None
+        return None if (not name or name == NONE_LABEL) else name
+    return sel(WIDTH_COL_ID), sel(HEIGHT_COL_ID)
 
-    try:
-        args.command.setDialogInitialSize(460, 320)
-    except Exception:
-        pass
 
+def _preview_html(width_title, height_title):
     try:
-        base, plan, err = _plan()
+        base, plan, err = _plan(width_title, height_title) if width_title else \
+            (None, [], 'Pick the column that holds the cabinet width.')
     except Exception as e:
         base, plan, err = None, [], f'Failed to read the configuration table:<br>{e}'
 
@@ -208,21 +253,68 @@ def command_created(args: adsk.core.CommandCreatedEventArgs):
                 lines.append(f"<b>{p['old']}</b> &nbsp;&rarr;&nbsp; <b>{p['new']}</b>")
     elif not err:
         lines.append('Nothing to rename.')
+    return '<br>'.join(lines)
 
-    box = inputs.addTextBoxCommandInput(PREVIEW_ID, '', '<br>'.join(lines), 12, True)
+
+def command_created(args: adsk.core.CommandCreatedEventArgs):
+    futil.log(f'{CMD_NAME} Command Created Event')
+    inputs = args.command.commandInputs
+
+    try:
+        args.command.setDialogInitialSize(460, 380)
+    except Exception:
+        pass
+
+    try:
+        _, table, err = _get_table()
+        candidates = _candidate_columns(table) if table else []
+    except Exception:
+        candidates, err = [], 'Failed to read the configuration table.'
+
+    width_guess = _guess_column(candidates, 'width')
+    height_guess = _guess_column(candidates, 'height')
+
+    dd_w = inputs.addDropDownCommandInput(
+        WIDTH_COL_ID, 'Width column', adsk.core.DropDownStyles.TextListDropDownStyle)
+    for _, title in candidates:
+        dd_w.listItems.add(title, title == width_guess)
+
+    dd_h = inputs.addDropDownCommandInput(
+        HEIGHT_COL_ID, 'Height column', adsk.core.DropDownStyles.TextListDropDownStyle)
+    dd_h.listItems.add(NONE_LABEL, height_guess is None)
+    for _, title in candidates:
+        dd_h.listItems.add(title, title == height_guess)
+
+    box = inputs.addTextBoxCommandInput(
+        PREVIEW_ID, '', err or _preview_html(width_guess, height_guess), 12, True)
     try:
         box.isFullWidth = True
     except Exception:
         pass
 
+    futil.add_handler(args.command.inputChanged, command_input_changed, local_handlers=local_handlers)
     futil.add_handler(args.command.execute, command_execute, local_handlers=local_handlers)
     futil.add_handler(args.command.destroy, command_destroy, local_handlers=local_handlers)
 
 
+def command_input_changed(args: adsk.core.InputChangedEventArgs):
+    if args.input.id not in (WIDTH_COL_ID, HEIGHT_COL_ID):
+        return
+    # args.inputs may hold only the changed input's group — go via the command.
+    inputs = args.firingEvent.sender.commandInputs
+    box = inputs.itemById(PREVIEW_ID)
+    if box:
+        box.formattedText = _preview_html(*_selected_titles(inputs))
+
+
 def command_execute(args: adsk.core.CommandEventArgs):
     futil.log(f'{CMD_NAME} Command Execute Event')
+    width_title, height_title = _selected_titles(args.command.commandInputs)
+    if not width_title:
+        ui.messageBox('Pick the column that holds the cabinet width.', CMD_NAME)
+        return
     # Recompute rather than trusting the preview — the table may have changed.
-    base, plan, err = _plan()
+    base, plan, err = _plan(width_title, height_title)
 
     des = adsk.fusion.Design.cast(app.activeProduct)
     table = des.configurationTopTable if des else None
