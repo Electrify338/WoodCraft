@@ -89,6 +89,41 @@ def panel_appearance(component):
     return ''
 
 
+def occurrence_appearance(occ, override, fallback):
+    """Name of the appearance THIS occurrence displays, or `fallback`.
+
+    panel_appearance() asks the component in its own document, which misses
+    occurrence-level overrides — what Fusion records when an appearance is
+    dragged onto a cabinet in the browser, and what Appearance Config's themes
+    and per-cabinet custom finish paint (occ.appearance = …). The body PROXY
+    (occ.bRepBodies) reports the appearance in this occurrence's assembly
+    context, resolved through Fusion's own face/body/occurrence/material
+    precedence — what the viewport actually shows. `override` is the nearest
+    occ.appearance override on the path down from the root (innermost wins),
+    carried by the walk for the nodes that have no single body to ask —
+    assemblies and multi-body parts."""
+    try:
+        bodies = occ.bRepBodies
+        if bodies.count == 1:
+            ap = bodies.item(0).appearance
+            if ap:
+                return ap.name
+    except Exception:
+        pass
+    return override or fallback
+
+
+def occurrence_override_name(occ):
+    """The occurrence's own appearance override name, or None when unpainted."""
+    try:
+        ap = occ.appearance
+        if ap:
+            return ap.name
+    except Exception:
+        pass
+    return None
+
+
 def _bbox_ext_mm(bb):
     """Bounding-box extents in millimetres, sorted largest first."""
     ext = [(bb.maxPoint.x - bb.minPoint.x) * 10.0,
@@ -755,6 +790,12 @@ def build_tree(design, root=None):
     component is included — assemblies (cabinets), classified panels/hardware, and
     unclassified parts alike — so the structure is complete regardless of tagging.
 
+    `appearance` is resolved PER OCCURRENCE, in assembly context — so a finish
+    dragged onto one cabinet in the browser, or painted by Appearance Config's
+    themes / per-cabinet custom finish (all occurrence-level overrides), shows
+    up in the BOM exactly as the viewport displays it. Two instances of the
+    same cabinet wearing different finishes split into separate qty rows.
+
     Each node also carries `edgebands`: [{name, length_mm, cost_per_m, cost}] for
     ONE instance — the summed lengths of its WC_EDGEBAND-tagged faces, priced from
     the Sheets library's band catalogue (cost_per_m/cost None when the band is
@@ -863,11 +904,16 @@ def build_tree(design, root=None):
             return sum(rolled), 'rollup'
         return None, None
 
-    # One subtree build per unique component: the same cabinet dropped in 10
-    # times used to re-walk its dims / materials / per-face edgeband attributes
-    # 10 times over, which is what froze Fusion on big models. Keyed by
-    # (source document, component name) — component names are unique within a
-    # document, but two inserted library cabinets can each contain a "Left Side".
+    # One leaf-data build per unique component: the same cabinet dropped in 10
+    # times used to re-measure its dims / materials / per-face edgeband
+    # attributes 10 times over, which is what froze Fusion on big models. Keyed
+    # by (source document, component name) — component names are unique within
+    # a document, but two inserted library cabinets can each contain a "Left
+    # Side". Appearance is deliberately NOT trusted from this cache: a dragged-
+    # on finish or Appearance Config's custom finish is an occurrence-level
+    # override, so the same component can display a different appearance per
+    # instance — nodes are therefore built per OCCURRENCE (cheap: cache hit +
+    # one proxy appearance read), and identical siblings regroup afterwards.
     proto_cache = {}
 
     def _comp_key(component):
@@ -879,8 +925,14 @@ def build_tree(design, root=None):
             return None
 
     def build_proto(component, key=None):
-        children = build_level(component.occurrences)
-        ntype = _node_type(component, bool(children))
+        """The occurrence-independent (and expensive) fields of a node —
+        everything but children, appearance, code and costs."""
+        has_children = False
+        try:
+            has_children = component.occurrences.count > 0
+        except Exception:
+            pass
+        ntype = _node_type(component, has_children)
         if ntype == 'Assembly':
             # A cabinet's size comes from its design's Width/Height/Depth user
             # parameters (bounding box as a last resort), shown as W × H × D —
@@ -890,7 +942,7 @@ def build_tree(design, root=None):
         else:
             dims = panel_dims_mm(component) or (0.0, 0.0, 0.0)
             bands = edgeband_rows(component, dims[2] if dims[2] > 0 else None)
-        proto = {
+        return {
             'name': component.name,
             'type': ntype,
             'material': panel_material(component),
@@ -903,52 +955,99 @@ def build_tree(design, root=None):
             # coverage figures use. Only measured on sheet-like leaves.
             'surface_m2': (component_surface_area_m2(component)
                            if ntype in SHEET_LIKE_TYPES else 0.0),
-            'children': children,
         }
-        # The coding string's width: a cabinet's is its Width parameter (the
-        # first slot above); a panel's is its W (second-largest extent).
-        proto['code'] = node_code(proto['part_number'],
-                                  dims[0] if ntype == 'Assembly' else dims[1],
-                                  proto['material'], proto['appearance'])
-        unit, kind = cost_for(component, proto, children)
-        proto['unit_cost'] = unit
-        proto['cost'] = unit
-        proto['cost_kind'] = kind
-        return proto
 
-    def node_for(component, qty):
+    def proto_for(component):
         key = _comp_key(component)
         proto = proto_cache.get(key) if key else None
         if proto is None:
             proto = build_proto(component, key)
             if key:
                 proto_cache[key] = proto
-        node = copy.deepcopy(proto)
-        node['qty'] = qty
-        node['cost'] = node['unit_cost'] * qty if node['unit_cost'] is not None else None
+        return proto
+
+    def finish_node(node, component):
+        # The coding string's width: a cabinet's is its Width parameter (the
+        # first dims slot); a panel's is its W (second-largest extent).
+        node['code'] = node_code(node['part_number'],
+                                 node['L'] if node['type'] == 'Assembly' else node['W'],
+                                 node['material'], node['appearance'])
+        unit, kind = cost_for(component, node, node['children'])
+        node['unit_cost'] = unit
+        node['cost'] = unit
+        node['cost_kind'] = kind
         return node
 
-    def build_level(occ_collection):
-        # Aggregate identical sibling components into one node carrying a quantity,
-        # using component IDENTITY (==) — the way Fusion's own ExtractBOM sample
-        # does. entityToken is NOT a reliable grouping key (distinct components can
-        # collide on it, which dropped a sibling), so compare the components directly.
-        groups = []   # [{'comp': Component, 'qty': int}], in first-seen order
+    def node_for_occ(occ, component, override):
+        node = copy.deepcopy(proto_for(component))
+        node['children'] = build_level(occ.childOccurrences, override)
+        # Only sheet-like leaves (Panel/Countertop) get the occurrence-resolved
+        # appearance — that's what a dragged-on finish or Appearance Config
+        # paints. Hardware is usually multi-body (proxy read falls through to
+        # `override`), and most hardware has no override of its own, so it
+        # would otherwise inherit whatever cabinet-paint override sits above
+        # it — Fusion's real rendering behaviour, but meaningless for a screw
+        # or hinge and it was fragmenting hardware rows across cabinets that
+        # merely differ in ambient paint. Assemblies keep their own (constant)
+        # reading too — nothing paints a cabinet row itself.
+        if node['type'] in SHEET_LIKE_TYPES:
+            node['appearance'] = occurrence_appearance(occ, override,
+                                                       node['appearance'])
+        return finish_node(node, component)
+
+    def _occ_component(occ):
+        # Occurrence.component can transiently throw InternalValidationError.
+        for _ in range(3):
+            try:
+                return occ.component
+            except Exception:
+                pass
+        return None
+
+    def _app_sig(node):
+        """Displayed-appearance fingerprint of a node's subtree — what tells
+        apart two instances of the same cabinet wearing different finishes."""
+        return (node['appearance'],
+                tuple(_app_sig(c) for c in node['children']))
+
+    def build_level(occ_collection, override=None):
+        # Aggregate identical sibling components into one node carrying a
+        # quantity, using component IDENTITY (==) — the way Fusion's own
+        # ExtractBOM sample does (entityToken is NOT a reliable grouping key:
+        # distinct components can collide on it, which dropped a sibling) —
+        # but only while the instances LOOK identical too: appearance resolves
+        # per occurrence, so the same cabinet painted two ways yields two rows.
+        # `override` is the nearest ancestor occ.appearance on this path.
+        groups = []   # [{'comp', 'node', 'sig', 'qty'}], in first-seen order
         for i in range(occ_collection.count):
-            comp = occ_collection.item(i).component
+            occ = occ_collection.item(i)
+            comp = _occ_component(occ)
+            if comp is None:
+                continue
+            node = node_for_occ(occ, comp,
+                                occurrence_override_name(occ) or override)
+            sig = _app_sig(node)
             for g in groups:
-                if g['comp'] == comp:
+                if g['comp'] == comp and g['sig'] == sig:
                     g['qty'] += 1
                     break
             else:
-                groups.append({'comp': comp, 'qty': 1})
-        return [node_for(g['comp'], g['qty']) for g in groups]
+                groups.append({'comp': comp, 'node': node, 'sig': sig, 'qty': 1})
+        nodes = []
+        for g in groups:
+            node = g['node']
+            node['qty'] = g['qty']
+            node['cost'] = (node['unit_cost'] * g['qty']
+                            if node['unit_cost'] is not None else None)
+            nodes.append(node)
+        return nodes
 
     nodes = build_level(root.occurrences)
     # A PART document (or a scope narrowed to a leaf) has no occurrences to walk —
     # the root component IS the item. Emit it as the single node so a lone dowel
     # or bracket still gets a BOM. Assemblies keep the root out (its children are
-    # the top-level rows), same as before.
+    # the top-level rows), same as before. No occurrence exists for a root, so
+    # its appearance is the component's own — nothing can override it.
     if not nodes:
         has_content = False
         try:
@@ -956,7 +1055,9 @@ def build_tree(design, root=None):
         except Exception:
             pass
         if has_content or wc_attrs.get_category(root):
-            nodes = [node_for(root, 1)]
+            node = copy.deepcopy(proto_for(root))
+            node['children'] = []
+            nodes = [finish_node(node, root)]
     _number_tree(nodes)
     # Persist any part numbers this build managed to read (or re-validate) so
     # the next session starts warm instead of re-fetching from the data service.
