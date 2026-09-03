@@ -26,6 +26,8 @@ split into panels that read as a workflow (design → hardware → output):
 | **Line Boring** | Bores the shelf‑pin hole pattern into a side/gable panel from a pluggable **rule** (default **Emaar**: three‑hole sets in two columns, set centres dividing the panel height into N+1 equal gaps). Builds **live‑parametric** — `wc_lb_*` user parameters driving a sketch → seed hole → 2‑direction pattern — so editing the parameters reflows the holes; falls back to explicit holes if any step of the parametric build fails. Geometry and the rule registry live in `commands/boring.py`. |
 | **Edgeband** | Tags a panel's thin **edge faces** with an edgeband type from the Sheets library's band catalogue, and **tints** them in the viewport so banded edges read at a glance. The BOM sums tagged length per band type (face area ÷ thickness, so curves count their true arc length) and prices the metres from the catalogue. An "only exposed edges" detector probes each face to skip edges butted against another panel. |
 | **Set Type** | Classifies selected components/bodies as **panels** or **purchased hardware** (with a unit cost) so the cut list, nesting and BOM can sort them. Hardware assemblies can be priced as a **complete pack** (one price, children not billed again) or as **separate parts** (sum of contents). Use it for hand‑modelled or imported parts. |
+| **Set Finish** | Gives selected cabinets their **finish spec** in one step. Two radio groups (**Carcass Type**, **Door Type**) write attributes of exactly those names — `Painted` or `Veneer` — onto the components you picked. Four dropdowns (**Carcass / Door Material**, **Carcass / Door Appearance**) each list their **own** curated set of names — a carcass is MDF or melamine, a door front is a decor, so one shared shortlist for all four was just noise. The names are resolved against every loaded material library (Emaar, Fusion Material, Assets, Favorites …) and are edited with **Finish Lists**; on Apply the command walks inside each selected cabinet and applies the carcass pair to every component named *Left/Right/Bottom/Back/Top Panel, Rail, Front/Back Rail, Bottom/Top Back Rail, Shelf, Fixed Shelf, Oven Shelf, Oven Support* and the door pair to every *Front Panel, Door Panel, Door, Left/Right/Top/Bottom Door, Fixed Panel, Drawer, Drawer Face, Drawer Face Top/Middle/Bottom, Top/Bottom Drawer, Filler*. Matching ignores case and Fusion’s copy/occurrence suffixes (`Left Panel (2)`, `Left Panel:1`). Alongside those exact names there are **keyword** rules (`WC_*_PART_KEYWORDS`): a component whose name merely *contains* the phrase joins the group, which is how every `Drawer Face …` variant is caught without listing them all. Exact names are resolved before keywords, so a broad phrase can never hijack a listed part; anything matching neither is left untouched. **Material and appearance are independent:** every dropdown starts on *leave unchanged*, so you can set a material without touching the look, recolour without re-specifying the material, do both, or neither and just tag the types. Fusion normally makes a material drag its own appearance along — the command suppresses that by noting each body’s appearance before the material lands and pinning it back as a body override, unless you picked an appearance, which becomes the override instead. Bodies that already carry their own override are left alone; an override outranks a material’s appearance anyway. |
+| **Finish Lists** | Edits what Set Finish offers, from inside Fusion. Pick which **list** you are editing (Carcass Material, Carcass Appearance, Door Material, Door Appearance), optionally narrow to one **library**, and **search** by name — matches anywhere in the name, ignoring case, which is the practical way to find one entry among the 461 materials your libraries hold. Tick items in the checkbox list; only entries *of the right kind* are ever offered (materials for a material list, appearances for an appearance one). All four lists are edited in one sitting and written to `%APPDATA%/WoodCraft/finish_lists.json` on OK. Only what is currently displayed is read back, so a name hidden by the filters keeps its place — which is also why a configured name that no loaded library offers any more is **kept and named in the summary** rather than silently dropped: the usual cause is a library not yet imported on this machine. Not promoted — it’s a setup command. |
 
 ### Hardware (machining)
 | Command | What it does |
@@ -35,11 +37,13 @@ split into panels that read as a workflow (design → hardware → output):
 
 ### Kitchen (whole-assembly)
 These act on a **finished kitchen** — a run of cabinets already assembled — rather
-than on one cabinet at a time.
+than on one cabinet at a time. **Set Finish** and **Finish Lists** live here too:
+the finish spec is a property of a whole kitchen, not of a cabinet being modelled.
 
 | Command | What it does |
 |---|---|
 | **Countertop** | Builds the worktop over assembled cabinets. **The wall is the reference:** the slab's back edge lies on the picked wall face and its front edge is that face offset by the **cabinet depth + a 20 mm overhang** (editable). The **side panels supply only the two end lines** — where the run starts and stops along the wall, taken from their outer faces. The underside lands on the **top of the tallest selected side panel**, so you never measure the plinth + carcass height. Tick **Backsplash** for an upstand as well, with its own **thickness** and **height**: it runs the full length of each run, hard against the wall, standing on the worktop. A **live preview** draws every piece as a wireframe box (slab in cyan, upstand in amber) labelled with its run length, so you see it before you commit. One wall face = one run = one component with one body (`Countertop` / `Countertop 1..N`, plus `Backsplash N`), each tagged with its own **countertop** category — costed by area and edgebandable exactly like a panel, but kept **out of the cut list and the nest**, because a worktop is bought as a slab or a cut length rather than nested out of a stock sheet. **L‑ and U‑shaped kitchens in one go:** select every wall and every end panel — each run claims the panels standing in front of *its* wall, is **extended and then clipped to the other walls' planes** so it ends exactly where the walls meet — neither short of the corner nor through the wall — and where two runs still overlap the command finishes with a **Combine cut** (keeping the tool) so the corner is solid once, not twice. |
+| **Skirting** | Builds the **plinth** under an assembled kitchen — deliberately its own command, not part of Countertop: a worktop is referenced off the **wall behind** the cabinets, a plinth off the **cabinet fronts**. Pick the **front face** of each run (its plane is the front, its normal says which way the run faces), the **side panels of the end cabinets** (which set how far the run reaches and how high the carcass underside is), optionally an **island** selection for a block skirted all the way round, and optionally a **ground** face or plane (default Z = 0). Give a **thickness** and a **setback** — the toe recess — and each run gets a board from the floor to the underside of the carcass, set back from the fronts. **Corners are mitred:** the run lines are offset and intersected, so an L, a U and a closed island loop all fall out of one construction and the material at a corner is counted once rather than twice. A galley deliberately does *not* join up — parallel runs never meet. Runs longer than **3 m** are split into equal boards, each its own sub-component tagged as a WoodCraft panel so the cut list counts it as a real part. Output is one component per run (`Skirting`, `Skirting 2` …) holding one sub-component per board. |
 
 ### Output (production)
 | Command | What it does |
@@ -174,18 +178,24 @@ WoodCraft/
 │   ├── __init__.py             # registers every command (start/stop, per-command error isolation)
 │   ├── ui_helpers.py           # shared tab/panel creation, teardown, panel tagging
 │   ├── wc_attrs.py             # component attribute store (category, cost, purchase mode,
-│   │                           #   edgeband)
+│   │                           #   edgeband, carcass/door finish type)
 │   ├── panels.py               # shared panel collector, material reading, assembly tree
 │   ├── boring.py               # pure-math shelf-pin boring rules + geometry (no Fusion features)
 │   ├── countertop_geom.py      # pure-math worktop outline from wall + side panels (no Fusion API)
+│   ├── skirting_geom.py        # pure-math plinth outlines: mitred corners, 3 m splitting (no Fusion API)
 │   ├── nesting.py              # pure-math guillotine nester + SVG (no Fusion API)
 │   ├── sheets_store.py         # global stock-sheet + edgeband library (load/save/match; pure)
 │   ├── settings_store.py       # global add-on settings JSON (waste factor)
+│   ├── finish_store.py         # per-dropdown material/appearance name lists (pure)
+│   ├── material_pool.py        # resolves those names against the loaded material libraries
 │   ├── report_utils.py         # shared HTML report shell, CSS, escaping, open-in-browser
 │   ├── xlsx_writer.py          # dependency-free .xlsx writer (stdlib zipfile + XML)
 │   ├── carcassMaker/  trim/  editThickness/  shelf/  lineBoring/  edgeband/  convertPanel/
+│   ├── setFinish/            # Set Finish: type attributes + carcass/door materials
+│   ├── finishLists/          # Finish Lists: edits the four dropdown lists
 │   ├── insertHardware/  sculpt/
 │   ├── countertop/             # Kitchen panel
+│   ├── skirting/               # Kitchen panel: the plinth
 │   ├── sheets/                 # Sheets palette: entry.py + resources/html/{index,style,main}
 │   ├── cutList/                # Cut List & Nest
 │   ├── bom/                    # BOM palette: entry.py + resources/html/{index,style,main}

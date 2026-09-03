@@ -25,10 +25,16 @@ from .editThickness import entry as editThickness
 from .shelf import entry as shelf
 from .lineBoring import entry as lineBoring
 from .convertPanel import entry as convertPanel
+from .configRows import entry as configRows
+from .configBuild import entry as configBuild
+from .setFinish import entry as setFinish
+from .finishLists import entry as finishLists
 from .edgeband import entry as edgeband
 from .insertHardware import entry as insertHardware
 from .sculpt import entry as sculpt
 from .countertop import entry as countertop
+from .skirting import entry as skirting
+from .handles import entry as handles
 from .appearanceConfig import entry as appearanceConfig
 from .sheets import entry as sheets
 from .cutList import entry as cutList
@@ -45,10 +51,16 @@ commands = [
     shelf,
     lineBoring,
     convertPanel,
+    configRows,
+    configBuild,
+    setFinish,
+    finishLists,
     edgeband,
     insertHardware,
     sculpt,
     countertop,
+    skirting,
+    handles,
     appearanceConfig,
     sheets,
     cutList,
