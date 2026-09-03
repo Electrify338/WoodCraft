@@ -31,7 +31,10 @@ Design workspace (FusionSolidEnvironment)
     │   ├── Insert Hardware  (button)      id = WoodCraft_insertHardware
     │   └── Sculpt           (button)      id = WoodCraft_sculpt
     ├── Panel: "Kitchen"                   id = WoodCraft_kitchen_panel
-    │   └── Countertop       (button)      id = WoodCraft_countertop
+    │   ├── Countertop       (button)      id = WoodCraft_countertop
+    │   ├── Skirting         (button)      id = WoodCraft_skirting
+    │   ├── Set Finish       (button)      id = WoodCraft_setFinish
+    │   └── Finish Lists     (button)      id = WoodCraft_finishLists   (not promoted)
     ├── Panel: "Output"                    id = WoodCraft_output_panel
     │   ├── Sheets           (palette)     id = WoodCraft_sheets
     │   ├── Cut List & Nest  (button)      id = WoodCraft_cutList

@@ -136,6 +136,92 @@ WC_PURCHASE_SEPARATE = 'separate'
 # on the face — same philosophy as panel costs being derived, never stored).
 WC_EDGEBAND = 'edgeband'
 
+# Finish spec (Set Finish command) — how a cabinet's two visible surface groups are
+# finished. Stamped on the CABINET component the user selects, not on every panel,
+# because the spec is a property of the cabinet as a whole: "this box is painted,
+# its doors are veneer". The attribute NAMES are the human-readable labels shown in
+# the dialog, so they read the same in Fusion's own attribute inspector as they do
+# in the WoodCraft UI and in any exported report.
+WC_CARCASS_TYPE = 'Carcass Type'
+WC_DOOR_TYPE = 'Door Type'
+
+# The two finishes a carcass or a door can have. Kept as a tuple so the dialog's
+# radio buttons and any future validation both read the same list — adding a third
+# finish means adding it here and nowhere else.
+WC_FINISH_PAINTED = 'Painted'
+WC_FINISH_VENEER = 'Veneer'
+WC_FINISH_TYPES = (WC_FINISH_PAINTED, WC_FINISH_VENEER)
+
+# ---------------------------------------------------------------------------
+# Finish part-name maps (Set Finish command)
+# ---------------------------------------------------------------------------
+# Set Finish assigns ONE physical material to the box and ANOTHER to the fronts.
+# Which group a component belongs to is decided by its NAME, because that is what
+# the cabinet author already controls: Carcass Maker and Shelf Creator name what
+# they build, and a hand-modelled cabinet only has to use the same words. Matching
+# is case-insensitive and ignores Fusion's copy/occurrence suffixes ("Left Panel",
+# "Left Panel (2)", "Left Panel:1" and "left panel 2" all match) — see
+# commands/setFinish/entry.py.
+#
+# A name in NEITHER list is left alone: Set Finish never guesses, so hardware,
+# worktops and anything you named yourself keep the material you gave them.
+WC_CARCASS_PART_NAMES = (
+    'Left Panel',
+    'Right Panel',
+    'Bottom Panel',
+    'Back Panel',
+    'Rail',
+    'Front Rail',
+    'Back Rail',
+    'Bottom Back Rail',
+    'Top Back Rail',
+    'Top Panel',
+    'Shelf',
+    'Fixed Shelf',
+    'Oven Shelf',
+    'Oven Support',
+)
+
+WC_DOOR_PART_NAMES = (
+    'Front Panel',
+    'Door Panel',
+    'Door',
+    'Left Door',
+    'Right Door',
+    'Top Door',
+    'Bottom Door',
+    'Fixed Panel',
+    'Drawer',
+    'Drawer Face',
+    'Drawer Face Top',
+    'Drawer Face Middle',
+    'Drawer Face Bottom',
+    'Top Drawer',
+    'Bottom Drawer',
+    'Filler',
+)
+
+# ---------------------------------------------------------------------------
+# Finish part-name KEYWORDS (Set Finish command)
+# ---------------------------------------------------------------------------
+# The tuples above match a component's whole name. These match a FRAGMENT of it: a
+# component whose name CONTAINS one of these phrases joins that group no matter what
+# else is in the name, so 'Drawer Face', 'Drawer Face Top', 'Middle Drawer Face' and
+# 'Drawer Face - Oak' are all fronts without anyone maintaining a list of every
+# variant a cabinet author might type.
+#
+# Order of resolution (see commands/setFinish/entry.py): an exact name in either list
+# above wins first, then carcass keywords, then door keywords. A keyword can
+# therefore never steal a component that a listed exact name already claims.
+#
+# Keep these phrases SPECIFIC. A keyword is a substring test, so a short or generic
+# fragment ('panel', 'door') would swallow half the cabinet — that is what the exact
+# lists are for. Empty strings are ignored rather than matching everything.
+WC_CARCASS_PART_KEYWORDS = ()
+
+WC_DOOR_PART_KEYWORDS = (
+    'Drawer Face',
+)
 # Appearance role — HOW a part is painted when a configuration row is applied by
 # the Appearance Config command. Orthogonal to WC_CATEGORY on purpose: a door IS
 # a panel (nested, costed, edgebanded like any panel); the role only decides
@@ -159,4 +245,4 @@ WC_ROLES = (WC_ROLE_DOOR, WC_ROLE_FRONT, WC_ROLE_CARCASS, WC_ROLE_SKIP)
 WC_APPEARANCE_COLS = 'appearanceColumns'
 
 # Future keys plug in here with no core change, e.g.:
-#   WC_FINISH = 'finish'; WC_PART_NO = 'partNumber'
+#   WC_PART_NO = 'partNumber'
